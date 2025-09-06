@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Email Verification Code - {{ site_name }}</title>
+    <style>
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background-color: #f7fafc;
+        padding: 20px;
+        margin: 0;
+      }
+      .container {
+        max-width: 500px;
+        margin: 0 auto;
+        background: #ffffff;
+        padding: 30px;
+        border-radius: 10px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        text-align: center;
+      }
+      .otp-code {
+        font-size: 34px;
+        font-weight: bold;
+        letter-spacing: 6px;
+        color: #2d3748;
+        background: #edf2f7;
+        padding: 15px 25px;
+        border-radius: 8px;
+        display: inline-block;
+        margin: 20px 0;
+        font-family: "Courier New", monospace;
+      }
+      .footer {
+        margin-top: 20px;
+        font-size: 13px;
+        color: #718096;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h2>Verify Your Email - {{ site_name }}</h2>
+      <p>
+        Use the verification code below. It is valid for
+        <strong>10 minutes</strong>:
+      </p>
+      <div class="otp-code">{{ otp }}</div>
+      <p class="footer">
+        If you didn’t request this, you can ignore this email.
+      </p>
+    </div>
+  </body>
+</html>
