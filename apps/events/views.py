@@ -70,15 +70,16 @@ class AllEventsView(generics.ListAPIView):
         queryset = super().get_queryset()
 
         # --- Filters ---
-        service_type = self.request.query_params.get("service_type")
-        if service_type:
-            queryset = queryset.filter(
-                service_details__service__service_type=service_type
-            )
+        service_types = self.request.query_params.getlist("service_type")
+        if service_types:
+            service_q = models.Q()
+            for service_type in service_types:
+                service_q |= models.Q(service_details__service__service_type=service_type)
+            queryset = queryset.filter(service_q)
 
         search_query = (self.request.query_params.get("search") or "").strip()
         if search_query:
-            # IMPORTANT: include title in "search" as well as brand/seller
+
             queryset = queryset.filter(
                 models.Q(title__icontains=search_query)
                 | models.Q(brand_name__icontains=search_query)
@@ -90,7 +91,6 @@ class AllEventsView(generics.ListAPIView):
         if brand_name:
             queryset = queryset.filter(brand_name__icontains=brand_name)
 
-        # in AllEventsView.get_queryset(), after reading seller_name
         seller_name = self.request.query_params.get("seller_name")
         if seller_name:
             parts = [p for p in seller_name.split() if p]
@@ -105,13 +105,10 @@ class AllEventsView(generics.ListAPIView):
                     models.Q(seller__last_name__icontains=seller_name)
                 )
 
-
-        # explicit title filter still supported
         title = self.request.query_params.get("title")
         if title:
             queryset = queryset.filter(title__icontains=title)
 
-        # min rating
         min_rating = self.request.query_params.get("min_rating")
         if min_rating:
             try:
@@ -119,8 +116,7 @@ class AllEventsView(generics.ListAPIView):
             except (ValueError, TypeError):
                 pass
 
-        # Remove duplicates when joins are used
-        if service_type or search_query:
+        if service_types or search_query:  
             queryset = queryset.distinct()
 
         # Ordering
