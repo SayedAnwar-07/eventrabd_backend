@@ -8,8 +8,11 @@ class ServiceOrderSerializer(serializers.ModelSerializer):
     event_title = serializers.CharField(source='event.title', read_only=True)
     event_logo = serializers.CharField(source='event.logo', read_only=True)
     event_brand_name = serializers.CharField(source='event.brand_name', read_only=True)
+    event_seller_whatsapp_number = serializers.CharField(source='seller.whatsapp_number', read_only=True)
+    event_seller__number = serializers.CharField(source='seller.phone_number', read_only=True)
     seller_name = serializers.CharField(source='seller.full_name', read_only=True)
     buyer_name = serializers.CharField(source='buyer.full_name', read_only=True)
+    buyer_profile = serializers.CharField(source='buyer.profile_image', read_only=True)
 
     discount_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
     net_total = serializers.SerializerMethodField()
@@ -17,10 +20,10 @@ class ServiceOrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = ServiceOrder
         fields = [
-            'id', 'seller', 'buyer',
-            'seller_slug', 'buyer_slug',
+            'id', 'seller', 'buyer','event_seller_whatsapp_number',
+            'seller_slug', 'buyer_slug','event_seller__number',
             'event', 'event_title', 'event_brand_name', 'event_logo',
-            'seller_name', 'buyer_name',
+            'seller_name', 'buyer_name','buyer_profile',
             'event_date', 'event_time', 'location',
             'selected_services', 'seller_agreed', 'status',
             'total_amount', 'discount_price', 'net_total', 'advance_paid',
@@ -79,7 +82,8 @@ class UpdateServiceSellerOrderSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ServiceOrder
-        fields = ["discount_price", "advance_paid", "invoice_file", "full_payment_date"]
+        fields = ["discount_price", "advance_paid", "invoice_file", "full_payment_date","status"]
+        read_only_fields = ["status"]
 
     def validate(self, data):
         user = self.context["request"].user
@@ -87,15 +91,21 @@ class UpdateServiceSellerOrderSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Only sellers can update these fields.")
 
         instance = getattr(self, "instance", None)
-        total_amount = instance.total_amount if instance else None
+        if instance:
+            if instance.status == "completed":
+                raise serializers.ValidationError("Cannot update an order that has been completed.")
+            if instance.status == "cancelled":
+                raise serializers.ValidationError("Cannot update a cancelled order.")
 
-        discount = data.get(
-            "discount_price", getattr(instance, "discount_price", Decimal("0.00"))
-        )
-        if total_amount is not None and discount > total_amount:
-            raise serializers.ValidationError("Discount cannot exceed total order amount.")
+            total_amount = instance.total_amount
+            discount = data.get(
+                "discount_price", getattr(instance, "discount_price", Decimal("0.00"))
+            )
+            if total_amount is not None and discount > total_amount:
+                raise serializers.ValidationError("Discount cannot exceed total order amount.")
 
         return data
+
 
     def update(self, instance, validated_data):
         discount = validated_data.get("discount_price", instance.discount_price)
