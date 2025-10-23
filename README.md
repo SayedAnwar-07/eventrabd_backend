@@ -21,7 +21,7 @@ You can use the following dummy accounts to log in:
 
 | Role       | Email                | Password             |
 |------------|--------------------|-------------------|
-| Admin      | neru@gmail.com       | SecurepassWord($@) |
+| seller     | neru@gmail.com       | SecurepassWord($@) |
 | Customer   | customer@gmail.com   | SecurepassWord($@) |
 
 > **Note:** These credentials are for testing purposes only.
@@ -49,12 +49,3 @@ You can use the following dummy accounts to log in:
 | **Database** | PostgreSQL |
 | **Authentication** | JWT (JSON Web Token) |
 | **Deployment** | Netlify (Frontend), Render/Heroku (Backend) |
-
----
-
-## 📸 Screenshots
-
-| Dashboard | Event Detail | Booking Page |
-|------------|---------------|---------------|
-| ![Dashboard](https://i.ibb.co.com/zhVrCKZ9/Eventra-BD.png) | ![Event Detail](https://i.ibb.co.com/zhVrCKZ9/Eventra-BD.png) | ![Booking](https://i.ibb.co.com/zhVrCKZ9/Eventra-BD.png) |
-
