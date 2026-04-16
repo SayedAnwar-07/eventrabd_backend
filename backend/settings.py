@@ -11,13 +11,18 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Load .env
 load_dotenv(dotenv_path=BASE_DIR / ".env", override=True)
 
-# GENERAL SETTINGS
-SECRET_KEY = os.getenv('SECRET_KEY')
+# SECRET KEY
+SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
     raise ImproperlyConfigured("SECRET_KEY is not set in environment variables.")
 
-DEBUG = os.getenv('DEBUG', 'False') == 'True'
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
+# DEBUG MODE
+DEBUG = os.getenv("DEBUG", "False") == "True"
+
+raw_hosts = os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost")
+ALLOWED_HOSTS = ["*"] if raw_hosts.strip() == "*" else [
+    host.strip() for host in raw_hosts.split(",") if host.strip()
+]
 
 # INSTALLED APPS
 INSTALLED_APPS = [
