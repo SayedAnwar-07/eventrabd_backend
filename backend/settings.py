@@ -17,7 +17,7 @@ if not SECRET_KEY:
     raise ImproperlyConfigured("SECRET_KEY is not set in environment variables.")
 
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
 
 # INSTALLED APPS
 INSTALLED_APPS = [
@@ -204,15 +204,14 @@ CELERY_ACCEPT_CONTENT    = ['json']
 CELERY_TIMEZONE          = 'UTC'
 
 
-# ─── CORS ─────────────────────────────────────────────────────────────────────
-# Set CORS_ALLOWED_ORIGINS in .env for production. Keep allow-all only for local dev.
-if DEBUG:
-    CORS_ALLOW_ALL_ORIGINS = True
-else:
-    CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', '').split(',')
-
+# CORS configuration
+CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOW_CREDENTIALS = True
 
+CORS_ALLOWED_ORIGINS = [
+    # "http://localhost:5173",
+    "https://eventrabd-test.netlify.app",
+]
 
 # ─── OTP CONFIG ───────────────────────────────────────────────────────────────
 OTP_VALIDITY_SECONDS = int(os.getenv('OTP_VALIDITY', 600))   # 10 minutes
