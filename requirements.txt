@@ -1,7 +1,6 @@
 amqp==5.3.1
 asgiref==3.10.0
 billiard==4.2.2
-bson==0.5.10
 celery==5.5.3
 certifi==2025.10.5
 charset-normalizer==3.4.7
@@ -20,6 +19,7 @@ django-imagekit==6.0.0
 django-otp==1.6.1
 djangorestframework==3.16.1
 djangorestframework_simplejwt==5.5.1
+dnspython==2.8.0
 gunicorn==25.3.0
 idna==3.11
 kombu==5.5.4
@@ -29,6 +29,7 @@ pillow==11.3.0
 prompt_toolkit==3.0.52
 psycopg2-binary==2.9.11
 PyJWT==2.10.1
+pymongo==4.16.0
 python-dateutil==2.9.0.post0
 python-decouple==3.8
 python-dotenv==1.2.1
