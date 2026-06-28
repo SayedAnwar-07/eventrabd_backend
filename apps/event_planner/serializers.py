@@ -6,6 +6,7 @@ from rest_framework import serializers
 
 from apps.users.models import User
 from .models import EventBrand
+from apps.event_services.models import EventService
 
 
 class SellerInfoSerializer(serializers.ModelSerializer):
@@ -23,8 +24,42 @@ class SellerInfoSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class BrandServiceSerializer(serializers.ModelSerializer):
+    cover_photo_url = serializers.SerializerMethodField()
+    image_limit = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EventService
+        fields = [
+            "id",
+            "service_name",
+            "slug",
+            "cover_photo_url",
+            "drive_link",
+            "shift_charge",
+            "description",
+            "shift_hour",
+            "sound_system_payment",
+            "lighting_payment",
+            "image_limit",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_cover_photo_url(self, obj):
+        try:
+            return obj.cover_photo.url if obj.cover_photo else None
+        except Exception:
+            return None
+
+    def get_image_limit(self, obj):
+        return obj.image_limit
+
+
 class EventBrandSerializer(serializers.ModelSerializer):
     seller_info = SellerInfoSerializer(source="seller", read_only=True)
+    services = BrandServiceSerializer(many=True, read_only=True)
+    is_owner = serializers.SerializerMethodField()
 
     class Meta:
         model = EventBrand
@@ -36,16 +71,19 @@ class EventBrandSerializer(serializers.ModelSerializer):
             "service_area",
             "short_description",
             "seller_info",
+            "services",
+            "is_owner",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = [
-            "id",
-            "slug",
-            "seller_info",
-            "created_at",
-            "updated_at",
-        ]
+
+    def get_is_owner(self, obj):
+        request = self.context.get("request")
+
+        if not request or request.user.is_anonymous:
+            return False
+
+        return obj.seller_id == request.user.id
 
     def validate_brand_name(self, value):
         if self.instance and self.instance.brand_name != value:

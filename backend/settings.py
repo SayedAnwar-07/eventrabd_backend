@@ -171,8 +171,11 @@ REST_FRAMEWORK = {
         "rest_framework.throttling.UserRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
-        "anon": "20/hour",
+        "anon": "100/hour",
         "user": "1000/day",
+
+        "public_brand": "300/hour",
+
         "login": "5/minute",
         "otp": "10/hour",
         "password_reset": "5/hour",
@@ -181,7 +184,7 @@ REST_FRAMEWORK = {
 
 # SIMPLE JWT
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=10),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
@@ -226,7 +229,7 @@ CORS_ALLOW_CREDENTIALS = True
 
 raw_cors = os.getenv(
     "CORS_ALLOWED_ORIGINS",
-    "http://localhost:5173,https://eventrabd-test.netlify.app"
+    "http://localhost:5173,http://localhost:5174,https://eventrabd-test.netlify.app"
 )
 CORS_ALLOWED_ORIGINS = [
     origin.strip() for origin in raw_cors.split(",") if origin.strip()

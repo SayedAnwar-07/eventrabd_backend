@@ -183,12 +183,12 @@ class ForgotPasswordSerializer(serializers.Serializer):
         try:
             user = User.objects.get(email=data["email"])
             otp = generate_otp()
-            user.refresh_token   = hash_otp(otp)     # CRITICAL FIX #1 — hash it
-            user.otp_expires_at  = otp_expiry()       # CRITICAL FIX #2 — set expiry
+            user.refresh_token   = hash_otp(otp)  
+            user.otp_expires_at  = otp_expiry()     
             user.save()
             send_otp_email(user, otp, "emails/forgot_password_otp.html")
         except User.DoesNotExist:
-            pass  # silent — do not reveal whether email exists
+            pass 
 
         return {"message": "If this email is registered, an OTP has been sent."}
 
@@ -277,3 +277,42 @@ class UpdateProfileSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         return super().update(instance, validated_data)
+
+
+# Admin Serializers
+class AdminLoginSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField()
+
+    def validate(self, data):
+        user = authenticate(email=data["email"], password=data["password"])
+
+        if not user:
+            raise serializers.ValidationError("Invalid email or password.")
+
+        if not user.is_verified:
+            raise serializers.ValidationError("Account not verified.")
+
+        if not user.is_staff:
+            raise serializers.ValidationError("Admin access only.")
+
+        return {"user": user}
+
+
+class AdminUserListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "full_name",
+            "email",
+            "profile_image_url",
+            "username",
+            "slug",
+            "role",
+            "contact_number",
+            "service_area",
+            "is_verified",
+            "is_staff",
+            "created_at",
+        ]
