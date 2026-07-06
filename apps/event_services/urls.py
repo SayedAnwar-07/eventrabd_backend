@@ -6,21 +6,49 @@ from apps.event_services.views import (
     EventServiceDetailView,
     EventServiceGalleryImageDeleteView,
     EventServiceListView,
-    EventBrandAllServiceListView,
     EventServiceUpdateView,
 )
 
 urlpatterns = [
-    # Private seller-only (put FIRST)
-    path("services/create/", EventServiceCreateView.as_view(), name="event-service-create"),
+    # List all services of one brand
+    path(
+        "brands/<slug:brand_slug>/services/",
+        EventServiceListView.as_view(),
+        name="brand-services",
+    ),
 
-    # Public
-    path("services/", EventServiceListView.as_view(), name="event-service-list"),
-    path("brands/<slug:brand_slug>/services/",EventBrandAllServiceListView.as_view(), name="event-brand-all-service-list",),
-    path("services/<slug:slug>/", EventServiceDetailView.as_view(), name="event-service-detail"),
+    # Create service for this brand
+    path(
+        "brands/<slug:brand_slug>/services/create/",
+        EventServiceCreateView.as_view(),
+        name="event-service-create",
+    ),
 
-    # Others
-    path("services/<slug:slug>/update/", EventServiceUpdateView.as_view(), name="event-service-update"),
-    path("services/<slug:slug>/delete/", EventServiceDeleteView.as_view(), name="event-service-delete"),
-    path("services/<slug:slug>/gallery/<str:image_id>/delete/", EventServiceGalleryImageDeleteView.as_view()),
+    # Get one service
+    path(
+        "brands/<slug:brand_slug>/services/<str:service_name>/",
+        EventServiceDetailView.as_view(),
+        name="event-service-detail",
+    ),
+
+    # Update one service
+    path(
+        "brands/<slug:brand_slug>/services/<str:service_name>/update/",
+        EventServiceUpdateView.as_view(),
+        name="event-service-update",
+    ),
+
+    # Delete one service
+    path(
+        "brands/<slug:brand_slug>/services/<str:service_name>/delete/",
+        EventServiceDeleteView.as_view(),
+        name="event-service-delete",
+    ),
+
+    # Delete gallery image
+    path(
+        "brands/<slug:brand_slug>/services/<str:service_name>/gallery/<str:image_id>/delete/",
+        EventServiceGalleryImageDeleteView.as_view(),
+        name="event-service-gallery-image-delete",
+    ),
 ]

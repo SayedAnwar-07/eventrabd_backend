@@ -8,6 +8,7 @@ from cloudinary.models import CloudinaryField
 
 from apps.core.models import TimeStampedModel, UIDMixin
 from apps.event_planner.models import EventBrand
+from django.utils.crypto import get_random_string
 
 
 class ServiceType(models.TextChoices):
@@ -129,10 +130,8 @@ class EventService(UIDMixin, TimeStampedModel):
             pass
 
         elif self.service_name == ServiceType.SOUND_LIGHTING:
-            if self.sound_system_payment is None:
-                errors["sound_system_payment"] = "sound_system_payment is required."
-            if self.lighting_payment is None:
-                errors["lighting_payment"] = "lighting_payment is required."
+            if not self.shift_hour:
+                errors["shift_hour"] = "shift_hour is required for Sound Lighting."
 
         elif self.service_name == ServiceType.DJ:
             if not self.shift_hour:
@@ -143,17 +142,12 @@ class EventService(UIDMixin, TimeStampedModel):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            base_slug = slugify(f"{self.brand.slug}-{self.service_name}")
-            slug = base_slug
-            counter = 1
+            self.slug = slugify(self.service_name)
 
-            while EventService.objects.exclude(pk=self.pk).filter(slug=slug).exists():
-                slug = f"{base_slug}-{counter}"
-                counter += 1
+            # avoid duplicates
+            while EventService.objects.filter(slug=self.slug).exists():
+                self.slug = f"{slugify(self.service_name)}-{get_random_string(4)}"
 
-            self.slug = slug
-
-        self.full_clean()
         super().save(*args, **kwargs)
 
     @property

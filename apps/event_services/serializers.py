@@ -15,9 +15,18 @@ from apps.event_services.utils import (
 
 
 class EventBrandMiniSerializer(serializers.ModelSerializer):
+    is_owner = serializers.SerializerMethodField()
     class Meta:
         model = EventBrand
-        fields = ["id", "brand_name", "slug", "service_area"]
+        fields = ["id", "brand_name", "slug", "service_area", "is_owner"]
+        
+    def get_is_owner(self, obj):
+        request = self.context.get("request")
+
+        if not request or request.user.is_anonymous:
+            return False
+
+        return obj.seller_id == request.user.id
 
 
 class ServiceGalleryImageSerializer(serializers.ModelSerializer):
@@ -81,8 +90,6 @@ class EventServiceSerializer(serializers.ModelSerializer):
             "shift_charge",
             "description",
             "shift_hour",
-            "sound_system_payment",
-            "lighting_payment",
             "gallery_images",
             "image_limit",
             "add_gallery_images",
