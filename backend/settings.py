@@ -63,12 +63,11 @@ INSTALLED_APPS = [
     "apps.event_services",
 ]
 
-# MIDDLEWARE
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -98,6 +97,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "backend.wsgi.application"
 
+
 # DATABASE
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -113,13 +113,11 @@ else:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.getenv("DB_NAME", "eventraBD"),
-            "USER": os.getenv("DB_USER", "postgres"),
+            "NAME": os.getenv("DB_NAME"),
+            "USER": os.getenv("DB_USER"),
             "PASSWORD": os.getenv("DB_PASSWORD"),
-            "HOST": os.getenv("DB_HOST", "localhost"),
-            "PORT": os.getenv("DB_PORT", "5432"),
-            "CONN_MAX_AGE": 600,
-            "OPTIONS": {"sslmode": "prefer"},
+            "HOST": os.getenv("DB_HOST"),
+            "PORT": os.getenv("DB_PORT"),
         }
     }
 
@@ -231,6 +229,7 @@ raw_cors = os.getenv(
     "CORS_ALLOWED_ORIGINS",
     "http://localhost:5173,http://localhost:5174,https://eventrabd-test.netlify.app"
 )
+
 CORS_ALLOWED_ORIGINS = [
     origin.strip() for origin in raw_cors.split(",") if origin.strip()
 ]
