@@ -1,11 +1,11 @@
-# models.py
+import cloudinary.models
+
 from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
-import cloudinary.models
-from apps.event_planner.utils import validate_image_size
 
 from apps.core.models import TimeStampedModel, UIDMixin
+from apps.event_planner.utils import validate_image_size
 from apps.users.models import User
 
 
@@ -103,7 +103,7 @@ class EventBrand(UIDMixin, TimeStampedModel):
     def clean(self):
         super().clean()
 
-        if self.logo:
+        if hasattr(self.logo, "size"):
             validate_image_size(self.logo)
 
 

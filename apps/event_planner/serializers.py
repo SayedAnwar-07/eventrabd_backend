@@ -1,10 +1,9 @@
-# serializers.py
 from datetime import timedelta
 
 from django.utils import timezone
 from rest_framework import serializers
-from apps.event_planner.utils import validate_image_size
 
+from apps.event_planner.utils import validate_image_size
 from apps.users.models import User
 from .models import EventBrand
 from apps.event_services.models import EventService
@@ -55,30 +54,33 @@ class BrandServiceSerializer(serializers.ModelSerializer):
 
     def get_image_limit(self, obj):
         return obj.image_limit
-    
-    def validate_logo(self, value):
-        """
-        Validate brand logo size before Cloudinary upload.
-        """
-
-        if value:
-            validate_image_size(value)
-
-        return value
 
 
 class EventBrandSerializer(serializers.ModelSerializer):
-    seller_info = SellerInfoSerializer(source="seller", read_only=True)
-    services = BrandServiceSerializer(many=True, read_only=True)
+    seller_info = SellerInfoSerializer(
+        source="seller",
+        read_only=True,
+    )
+
+    services = BrandServiceSerializer(
+        many=True,
+        read_only=True,
+    )
+
     is_owner = serializers.SerializerMethodField()
+
+    logo_url = serializers.SerializerMethodField()
+
 
     class Meta:
         model = EventBrand
+
         fields = [
             "id",
             "brand_name",
             "slug",
             "logo",
+            "logo_url",
             "whatsapp_number",
             "service_area",
             "short_description",
@@ -89,7 +91,42 @@ class EventBrandSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+
+
+    def get_logo_url(self, obj):
+
+        if not obj.logo:
+            return None
+
+        try:
+            return obj.logo.build_url(
+                transformation=[
+                    {
+                        "width": 500,
+                        "height": 500,
+                        "crop": "limit",
+                    }
+                ],
+                quality="auto",
+                fetch_format="auto",
+            )
+
+        except Exception:
+            return None
+
+
+
+    def validate_logo(self, value):
+
+        if value:
+            validate_image_size(value)
+
+        return value
+
+
+
     def get_is_owner(self, obj):
+
         request = self.context.get("request")
 
         if not request or request.user.is_anonymous:
@@ -97,29 +134,47 @@ class EventBrandSerializer(serializers.ModelSerializer):
 
         return obj.seller_id == request.user.id
 
+
+
     def validate_brand_name(self, value):
+
         if self.instance and self.instance.brand_name != value:
-            # 60-day lock on brand_name changes
+
             last_changed = self.instance.brand_name_last_changed
 
             if last_changed:
+
                 diff = timezone.now() - last_changed
+
                 if diff < timedelta(days=60):
+
                     remaining = 60 - diff.days
+
                     raise serializers.ValidationError(
                         f"You can change brand name after {remaining} more day(s)."
                     )
 
-        # Case-insensitive uniqueness check
-        qs = EventBrand.objects.filter(brand_name__iexact=value)
-        if self.instance:
-            qs = qs.exclude(pk=self.instance.pk)
-        if qs.exists():
-            raise serializers.ValidationError("This brand name is already taken.")
 
+        qs = EventBrand.objects.filter(
+            brand_name__iexact=value
+        )
+
+
+        if self.instance:
+            qs = qs.exclude(
+                pk=self.instance.pk
+            )
+
+
+        if qs.exists():
+
+            raise serializers.ValidationError(
+                "This brand name is already taken."
+            )
         return value
 
     def validate(self, attrs):
+
         request = self.context.get("request")
 
         if (
@@ -127,38 +182,65 @@ class EventBrandSerializer(serializers.ModelSerializer):
             and request
             and request.user.is_authenticated
         ):
-            if EventBrand.objects.filter(seller=request.user).exists():
-                raise serializers.ValidationError(
-                    {"non_field_errors": "You already have a brand."}
-                )
 
+            if EventBrand.objects.filter(
+                seller=request.user
+            ).exists():
+
+                raise serializers.ValidationError(
+                    {
+                        "non_field_errors": "You already have a brand."
+                    }
+                )
         return attrs
 
     def create(self, validated_data):
+
         request = self.context["request"]
+
         validated_data["seller"] = request.user
+
         return super().create(validated_data)
 
 
 class EventBrandListSerializer(serializers.ModelSerializer):
+
     seller_name = serializers.CharField(
         source="seller.full_name",
-        read_only=True
+        read_only=True,
     )
 
     total_services = serializers.IntegerField(
-        read_only=True
+        read_only=True,
     )
+
+    logo_url = serializers.SerializerMethodField()
+
+
 
     class Meta:
         model = EventBrand
+
         fields = [
             "id",
             "brand_name",
-            "logo",
+            "logo_url",
             "slug",
             "service_area",
             "short_description",
             "seller_name",
             "total_services",
         ]
+
+
+
+    def get_logo_url(self, obj):
+
+        if not obj.logo:
+            return None
+
+        try:
+            return obj.logo.url
+
+        except Exception:
+            return None
