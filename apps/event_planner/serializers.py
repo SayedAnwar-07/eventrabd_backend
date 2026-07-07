@@ -3,6 +3,7 @@ from datetime import timedelta
 
 from django.utils import timezone
 from rest_framework import serializers
+from apps.event_planner.utils import validate_image_size
 
 from apps.users.models import User
 from .models import EventBrand
@@ -54,6 +55,16 @@ class BrandServiceSerializer(serializers.ModelSerializer):
 
     def get_image_limit(self, obj):
         return obj.image_limit
+    
+    def validate_logo(self, value):
+        """
+        Validate brand logo size before Cloudinary upload.
+        """
+
+        if value:
+            validate_image_size(value)
+
+        return value
 
 
 class EventBrandSerializer(serializers.ModelSerializer):
@@ -67,6 +78,7 @@ class EventBrandSerializer(serializers.ModelSerializer):
             "id",
             "brand_name",
             "slug",
+            "logo",
             "whatsapp_number",
             "service_area",
             "short_description",
@@ -109,12 +121,17 @@ class EventBrandSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         request = self.context.get("request")
-        # On creation: one brand per seller
-        if not self.instance and request:
+
+        if (
+            not self.instance
+            and request
+            and request.user.is_authenticated
+        ):
             if EventBrand.objects.filter(seller=request.user).exists():
                 raise serializers.ValidationError(
                     {"non_field_errors": "You already have a brand."}
                 )
+
         return attrs
 
     def create(self, validated_data):
@@ -124,14 +141,21 @@ class EventBrandSerializer(serializers.ModelSerializer):
 
 
 class EventBrandListSerializer(serializers.ModelSerializer):
-    seller_name = serializers.CharField(source="seller.full_name", read_only=True)
-    total_services = serializers.IntegerField(source="services.count", read_only=True)
+    seller_name = serializers.CharField(
+        source="seller.full_name",
+        read_only=True
+    )
+
+    total_services = serializers.IntegerField(
+        read_only=True
+    )
 
     class Meta:
         model = EventBrand
         fields = [
             "id",
             "brand_name",
+            "logo",
             "slug",
             "service_area",
             "short_description",
