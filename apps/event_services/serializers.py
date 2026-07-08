@@ -7,6 +7,8 @@ from apps.event_services.models import (
     ServiceGalleryImage,
     ServiceType,
     SERVICE_IMAGE_LIMITS,
+    GALLERY_ONLY_SERVICE_TYPES,
+    COVER_PHOTO_ONLY_SERVICE_TYPES,
 )
 from apps.event_services.utils import (
     is_google_drive_or_youtube_url,
@@ -16,17 +18,27 @@ from apps.event_services.utils import (
 
 class EventBrandMiniSerializer(serializers.ModelSerializer):
     is_owner = serializers.SerializerMethodField()
+
     class Meta:
         model = EventBrand
-        fields = ["id", "brand_name", "slug", "service_area", "is_owner"]
-        
+        fields = [
+            "id",
+            "brand_name",
+            "slug",
+            "service_area",
+            "is_owner",
+        ]
+
     def get_is_owner(self, obj):
         request = self.context.get("request")
 
-        if not request or request.user.is_anonymous:
+        if not request or not request.user.is_authenticated:
             return False
 
-        return obj.seller_id == request.user.id
+        return (
+            getattr(request.user, "role", None) == "seller"
+            and obj.seller_id == request.user.id
+        )
 
 
 class ServiceGalleryImageSerializer(serializers.ModelSerializer):
@@ -53,7 +65,7 @@ class EventServiceSerializer(serializers.ModelSerializer):
     )
 
     cover_photo_url = serializers.SerializerMethodField()
-    gallery_images = ServiceGalleryImageSerializer(many=True, read_only=True)
+    gallery_images = serializers.SerializerMethodField()
     image_limit = serializers.SerializerMethodField()
 
     add_gallery_images = serializers.ListField(
@@ -90,6 +102,8 @@ class EventServiceSerializer(serializers.ModelSerializer):
             "shift_charge",
             "description",
             "shift_hour",
+            "sound_system_payment",
+            "lighting_payment",
             "gallery_images",
             "image_limit",
             "add_gallery_images",
@@ -97,13 +111,29 @@ class EventServiceSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+        
         read_only_fields = ["id", "slug", "created_at", "updated_at"]
 
     def get_cover_photo_url(self, obj):
+        if obj.service_name not in COVER_PHOTO_ONLY_SERVICE_TYPES:
+            return None
+
         try:
             return obj.cover_photo.url if obj.cover_photo else None
         except Exception:
             return None
+
+    def get_gallery_images(self, obj):
+        if obj.service_name in COVER_PHOTO_ONLY_SERVICE_TYPES:
+            return []
+
+        return ServiceGalleryImageSerializer(
+            obj.gallery_images.all(),
+            many=True,
+        ).data
+
+    def get_image_limit(self, obj):
+        return obj.image_limit
 
     def get_image_limit(self, obj):
         return obj.image_limit
@@ -137,14 +167,21 @@ class EventServiceSerializer(serializers.ModelSerializer):
 
         drive_link = attrs.get("drive_link", getattr(self.instance, "drive_link", None))
         shift_hour = attrs.get("shift_hour", getattr(self.instance, "shift_hour", None))
+
         sound_system_payment = attrs.get(
             "sound_system_payment",
             getattr(self.instance, "sound_system_payment", None),
         )
+
         lighting_payment = attrs.get(
             "lighting_payment",
             getattr(self.instance, "lighting_payment", None),
         )
+
+        cover_photo = attrs.get("cover_photo")
+
+        add_gallery_images = attrs.get("add_gallery_images", [])
+        remove_gallery_image_ids = attrs.get("remove_gallery_image_ids", [])
 
         errors = {}
 
@@ -158,51 +195,58 @@ class EventServiceSerializer(serializers.ModelSerializer):
             if not drive_link:
                 errors["drive_link"] = "drive_link is required for Videography."
 
+        elif service_name == ServiceType.STAGE_DESIGNER:
+            pass
+
+        elif service_name == ServiceType.EVENT_HALL:
+            pass
+
         elif service_name == ServiceType.SOUND_LIGHTING:
             if sound_system_payment is None:
                 errors["sound_system_payment"] = "sound_system_payment is required."
             if lighting_payment is None:
                 errors["lighting_payment"] = "lighting_payment is required."
 
-        elif service_name == ServiceType.DJ:
-            if not shift_hour:
-                errors["shift_hour"] = "shift_hour is required for DJ."
-
-        # one service per type per brand
         if brand and service_name:
             qs = EventService.objects.filter(brand=brand, service_name=service_name)
+
             if self.instance:
                 qs = qs.exclude(pk=self.instance.pk)
+
             if qs.exists():
-                errors["service_name"] = "This brand already has this service type."
+                errors["service_name"] = "Your brand already has this service type."
 
-        # gallery image limit validation
-        add_gallery_images = attrs.get("add_gallery_images", [])
-        remove_gallery_image_ids = attrs.get("remove_gallery_image_ids", [])
+        if service_name in GALLERY_ONLY_SERVICE_TYPES:
+            if cover_photo:
+                errors["cover_photo"] = (
+                    f"{dict(ServiceType.choices).get(service_name)} does not support cover photo."
+                )
 
-        max_allowed = SERVICE_IMAGE_LIMITS.get(service_name, 0)
+            max_allowed = SERVICE_IMAGE_LIMITS.get(service_name, 0)
 
-        current_count = 0
-        if self.instance:
-            current_count = self.instance.gallery_images.count()
+            current_count = 0
 
-            if remove_gallery_image_ids:
-                current_count -= self.instance.gallery_images.filter(
-                    id__in=remove_gallery_image_ids
-                ).count()
+            if self.instance:
+                current_count = self.instance.gallery_images.count()
 
-        final_count = current_count + len(add_gallery_images)
+                if remove_gallery_image_ids:
+                    current_count -= self.instance.gallery_images.filter(
+                        id__in=remove_gallery_image_ids
+                    ).count()
 
-        if final_count > max_allowed:
-            errors["add_gallery_images"] = (
-                f"Maximum {max_allowed} gallery images allowed for "
-                f"{dict(ServiceType.choices).get(service_name)}."
-            )
+            final_count = current_count + len(add_gallery_images)
 
-        if max_allowed == 0 and add_gallery_images:
-            errors["add_gallery_images"] = (
-                f"{dict(ServiceType.choices).get(service_name)} does not support gallery images."
-            )
+            if final_count > max_allowed:
+                errors["add_gallery_images"] = (
+                    f"Maximum {max_allowed} gallery images allowed for "
+                    f"{dict(ServiceType.choices).get(service_name)}."
+                )
+
+        if service_name in COVER_PHOTO_ONLY_SERVICE_TYPES:
+            if add_gallery_images:
+                errors["add_gallery_images"] = (
+                    f"{dict(ServiceType.choices).get(service_name)} does not support gallery images."
+                )
 
         if errors:
             raise serializers.ValidationError(errors)
@@ -231,19 +275,48 @@ class EventServiceSerializer(serializers.ModelSerializer):
         remove_gallery_image_ids = validated_data.pop("remove_gallery_image_ids", [])
 
         new_cover_photo = validated_data.pop("cover_photo", None)
+        incoming_service_name = validated_data.pop("service_name", instance.service_name)
+
+        if incoming_service_name != instance.service_name:
+            raise serializers.ValidationError({
+                "service_name": [
+                    "Service type cannot be changed after creation. Please create a new service for another type."
+                ]
+            })
+
+        service_type = instance.service_name
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
-        if new_cover_photo is not None:
+        if service_type in GALLERY_ONLY_SERVICE_TYPES:
             if instance.cover_photo:
                 safe_destroy_cloudinary_resource(instance.cover_photo)
-            instance.cover_photo = new_cover_photo
+                instance.cover_photo = None
+
+        if service_type in COVER_PHOTO_ONLY_SERVICE_TYPES:
+            if new_cover_photo is not None:
+                if instance.cover_photo:
+                    safe_destroy_cloudinary_resource(instance.cover_photo)
+
+                instance.cover_photo = new_cover_photo
 
         instance.save()
 
+        if service_type in COVER_PHOTO_ONLY_SERVICE_TYPES:
+            images_to_delete = instance.gallery_images.all()
+
+            for image in images_to_delete:
+                safe_destroy_cloudinary_resource(image.image)
+                image.delete()
+
+            return instance
+
         if remove_gallery_image_ids:
-            images_to_delete = instance.gallery_images.filter(id__in=remove_gallery_image_ids)
+            images_to_delete = instance.gallery_images.filter(
+                id__in=remove_gallery_image_ids
+            )
+
             for image in images_to_delete:
                 safe_destroy_cloudinary_resource(image.image)
                 image.delete()

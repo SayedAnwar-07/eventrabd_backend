@@ -16,15 +16,27 @@ class ServiceType(models.TextChoices):
     VIDEOGRAPHY = "videography", "Videography"
     STAGE_DESIGNER = "stage_designer", "Stage Designer"
     SOUND_LIGHTING = "sound_lighting", "Sound System and Lighting"
-    DJ = "dj", "DJ"
+    EVENT_HALL = "event_hall", "Event Hall"
 
 
 SERVICE_IMAGE_LIMITS = {
-    ServiceType.PHOTOGRAPHY: 4,
-    ServiceType.STAGE_DESIGNER: 4,
-    ServiceType.DJ: 2,
+    ServiceType.PHOTOGRAPHY: 5,
+    ServiceType.STAGE_DESIGNER: 5,
+    ServiceType.EVENT_HALL: 5,
     ServiceType.VIDEOGRAPHY: 0,
     ServiceType.SOUND_LIGHTING: 0,
+}
+
+GALLERY_ONLY_SERVICE_TYPES = {
+    ServiceType.PHOTOGRAPHY,
+    ServiceType.STAGE_DESIGNER,
+    ServiceType.EVENT_HALL,
+}
+
+
+COVER_PHOTO_ONLY_SERVICE_TYPES = {
+    ServiceType.VIDEOGRAPHY,
+    ServiceType.SOUND_LIGHTING,
 }
 
 
@@ -75,7 +87,7 @@ class EventService(UIDMixin, TimeStampedModel):
     shift_hour = models.PositiveIntegerField(
         blank=True,
         null=True,
-        help_text="Used for Photography, Videography, DJ.",
+        help_text="Used for Photography, Videography, Hall booking service.",
     )
 
     sound_system_payment = models.DecimalField(
@@ -133,9 +145,9 @@ class EventService(UIDMixin, TimeStampedModel):
             if not self.shift_hour:
                 errors["shift_hour"] = "shift_hour is required for Sound Lighting."
 
-        elif self.service_name == ServiceType.DJ:
+        elif self.service_name == ServiceType.EVENT_HALL:
             if not self.shift_hour:
-                errors["shift_hour"] = "shift_hour is required for DJ."
+                errors["shift_hour"] = "shift_hour is required for ."
 
         if errors:
             raise ValidationError(errors)

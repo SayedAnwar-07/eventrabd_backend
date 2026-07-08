@@ -6,7 +6,7 @@ from rest_framework import serializers
 from apps.event_planner.utils import validate_image_size
 from apps.users.models import User
 from .models import EventBrand
-from apps.event_services.models import EventService
+from apps.event_services.models import EventService,ServiceGalleryImage, COVER_PHOTO_ONLY_SERVICE_TYPES
 
 
 class SellerInfoSerializer(serializers.ModelSerializer):
@@ -24,8 +24,28 @@ class SellerInfoSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class BrandGalleryImageSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ServiceGalleryImage
+        fields = [
+            "id",
+            "image_url",
+            "sort_order",
+            "created_at",
+        ]
+
+    def get_image_url(self, obj):
+        try:
+            return obj.image.url if obj.image else None
+        except Exception:
+            return None
+
+
 class BrandServiceSerializer(serializers.ModelSerializer):
     cover_photo_url = serializers.SerializerMethodField()
+    gallery_images = serializers.SerializerMethodField()
     image_limit = serializers.SerializerMethodField()
 
     class Meta:
@@ -41,16 +61,29 @@ class BrandServiceSerializer(serializers.ModelSerializer):
             "shift_hour",
             "sound_system_payment",
             "lighting_payment",
+            "gallery_images",
             "image_limit",
             "created_at",
             "updated_at",
         ]
 
     def get_cover_photo_url(self, obj):
+        if obj.service_name not in COVER_PHOTO_ONLY_SERVICE_TYPES:
+            return None
+
         try:
             return obj.cover_photo.url if obj.cover_photo else None
         except Exception:
             return None
+
+    def get_gallery_images(self, obj):
+        if obj.service_name in COVER_PHOTO_ONLY_SERVICE_TYPES:
+            return []
+
+        return BrandGalleryImageSerializer(
+            obj.gallery_images.all().order_by("sort_order", "-created_at"),
+            many=True,
+        ).data
 
     def get_image_limit(self, obj):
         return obj.image_limit
@@ -203,24 +236,37 @@ class EventBrandSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+class BrandListServiceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EventService
+        fields = [
+            "id",
+            "service_name",
+        ]
+        
+        
 class EventBrandListSerializer(serializers.ModelSerializer):
-
     seller_name = serializers.CharField(
         source="seller.full_name",
         read_only=True,
     )
 
-    total_services = serializers.IntegerField(
+    seller_profile = serializers.CharField(
+        source="seller.profile_image_url",
         read_only=True,
     )
 
+    services = BrandListServiceSerializer(
+        many=True,
+        read_only=True,
+    )
+
+    total_services = serializers.SerializerMethodField()
+
     logo_url = serializers.SerializerMethodField()
-
-
 
     class Meta:
         model = EventBrand
-
         fields = [
             "id",
             "brand_name",
@@ -229,18 +275,19 @@ class EventBrandListSerializer(serializers.ModelSerializer):
             "service_area",
             "short_description",
             "seller_name",
+            "seller_profile",
             "total_services",
+            "services",
         ]
 
-
-
     def get_logo_url(self, obj):
-
         if not obj.logo:
             return None
 
         try:
             return obj.logo.url
-
         except Exception:
             return None
+
+    def get_total_services(self, obj):
+        return obj.services.count()

@@ -26,28 +26,27 @@ urlpatterns = [
 
     # Get one service
     path(
-        "brands/<slug:brand_slug>/services/<str:service_name>/",
+        "brands/<slug:brand_slug>/services/<str:service_id>/<str:service_name>/",
         EventServiceDetailView.as_view(),
         name="event-service-detail",
     ),
 
     # Update one service
     path(
-        "brands/<slug:brand_slug>/services/<str:service_name>/update/",
+        "brands/<slug:brand_slug>/services/<str:service_id>/<str:service_name>/update/",
         EventServiceUpdateView.as_view(),
         name="event-service-update",
     ),
 
     # Delete one service
     path(
-        "brands/<slug:brand_slug>/services/<str:service_name>/delete/",
+        "brands/<slug:brand_slug>/services/<str:service_id>/<str:service_name>/delete/",
         EventServiceDeleteView.as_view(),
         name="event-service-delete",
     ),
-
     # Delete gallery image
     path(
-        "brands/<slug:brand_slug>/services/<str:service_name>/gallery/<str:image_id>/delete/",
+        "brands/<slug:brand_slug>/services/<str:service_id>/<str:service_name>/gallery/<str:image_id>/delete/",
         EventServiceGalleryImageDeleteView.as_view(),
         name="event-service-gallery-image-delete",
     ),

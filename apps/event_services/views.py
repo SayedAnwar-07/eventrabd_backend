@@ -13,7 +13,7 @@ from apps.event_services.models import EventService, ServiceGalleryImage
 from apps.event_services.permissions import IsSellerBrandOwnerOrReadOnly
 from apps.event_services.serializers import EventServiceSerializer
 from apps.event_services.utils import safe_destroy_cloudinary_resource
-
+from rest_framework.generics import RetrieveUpdateAPIView
 
 class EventServicePagination(pagination.PageNumberPagination):
     page_size = 12
@@ -32,7 +32,8 @@ class EventServiceBaseQueryMixin:
                 Prefetch(
                     "gallery_images",
                     queryset=ServiceGalleryImage.objects.order_by(
-                        "sort_order", "-created_at"
+                        "sort_order",
+                        "-created_at",
                     ),
                 )
             )
@@ -40,17 +41,19 @@ class EventServiceBaseQueryMixin:
 
     def get_object(self):
         brand_slug = self.kwargs.get("brand_slug")
+        service_id = self.kwargs.get("service_id")
         service_name = self.kwargs.get("service_name")
 
         service = get_object_or_404(
             self.get_queryset(),
             brand__slug=brand_slug,
+            id=service_id,
             service_name=service_name,
         )
 
         self.check_object_permissions(self.request, service)
-        return service
 
+        return service
 
 @method_decorator(never_cache, name="dispatch")
 @method_decorator(
@@ -189,16 +192,19 @@ class EventServiceDeleteView(EventServiceBaseQueryMixin, generics.DestroyAPIView
 
         instance.delete()
 
-
 class EventServiceGalleryImageDeleteView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsSellerBrandOwnerOrReadOnly]
+    permission_classes = [
+        permissions.IsAuthenticated,
+        IsSellerBrandOwnerOrReadOnly,
+    ]
 
-    def delete(self, request, brand_slug, service_name, image_id):
+    def delete(self, request, brand_slug, service_id, service_name, image_id):
         service = get_object_or_404(
             EventService.objects
             .select_related("brand", "brand__seller")
             .prefetch_related("gallery_images"),
             brand__slug=brand_slug,
+            id=service_id,
             service_name=service_name,
         )
 
