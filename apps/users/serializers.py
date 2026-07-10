@@ -111,23 +111,47 @@ class RegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data.pop("confirm_password")
         password = validated_data.pop("password")
-        username = validated_data.get("username")
-
-        # If blank → let model generate it
-        if not username:
-            validated_data.pop("username", None)
 
         for field in ("service_area", "whatsapp_number"):
-            if not validated_data.get(field, "").strip():
+            value = validated_data.get(field)
+
+            if not value or not value.strip():
                 validated_data[field] = None
 
-        user = User.objects.create_user(**validated_data, password=password)
-        otp = generate_otp()
-        user.access_token     = hash_otp(otp)
-        user.otp_expires_at   = otp_expiry()
-        user.save()
+        user = User.objects.create_user(
+            **validated_data,
+            password=password,
+        )
 
-        send_otp_email(user, otp, "emails/register_otp.html")
+        otp = generate_otp()
+
+        user.access_token = hash_otp(otp)
+        user.otp_expires_at = otp_expiry()
+        user.save(
+            update_fields=[
+                "access_token",
+                "otp_expires_at",
+            ]
+        )
+
+        success, result = send_otp_email(
+            user,
+            otp,
+            "emails/register_otp.html",
+        )
+
+        if not success:
+            user.delete()
+
+            raise serializers.ValidationError(
+                {
+                    "email": (
+                        "We could not send the verification email. "
+                        "Please try again."
+                    )
+                }
+            )
+
         return user
 
 
