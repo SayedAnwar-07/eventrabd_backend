@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     "apps.users",
     "apps.event_planner",
     "apps.event_services",
+    "apps.hires",
 ]
 
 MIDDLEWARE = [

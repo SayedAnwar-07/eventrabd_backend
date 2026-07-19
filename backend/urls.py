@@ -8,6 +8,7 @@ urlpatterns = [
     path('users/', include('apps.users.urls')),
     path('event-planner/', include('apps.event_planner.urls')),
     path('event-services/', include('apps.event_services.urls')),
+    path('hire/', include('apps.hires.urls')),
 ]
 
 if settings.DEBUG:
