@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <meta name="color-scheme" content="light" />
+    <meta name="supported-color-schemes" content="light" />
+
+    <title>
+      {% if is_accepted %} Hire Request Accepted {% else %} Hire Request Update
+      {% endif %}
+    </title>
+
+    <style>
+      /* Mobile styles */
+      @media only screen and (max-width: 600px) {
+        .email-wrapper {
+          padding: 20px 12px !important;
+        }
+        .email-card {
+          border-radius: 6px !important;
+        }
+        .email-body-padding {
+          padding: 22px 18px !important;
+        }
+        .email-footer-padding {
+          padding: 16px 18px !important;
+        }
+        h1.email-heading {
+          font-size: 20px !important;
+          line-height: 28px !important;
+        }
+        h2.email-subheading {
+          font-size: 15px !important;
+        }
+        table.detail-table td {
+          font-size: 13px !important;
+        }
+        table.detail-row-table td {
+          display: block !important;
+          width: 100% !important;
+          padding-bottom: 2px !important;
+        }
+        table.detail-row-table td.detail-label {
+          padding-top: 10px !important;
+          padding-bottom: 0 !important;
+          color: #9ca3af !important;
+        }
+        a.email-cta {
+          display: block !important;
+          text-align: center !important;
+        }
+        table.email-cta-table {
+          width: 100% !important;
+        }
+      }
+    </style>
+  </head>
+
+  <body
+    style="
+      margin: 0;
+      padding: 0;
+      background-color: #f6f7f9;
+      font-family: Arial, Helvetica, sans-serif;
+      color: #1f2937;
+    "
+  >
+    <table
+      role="presentation"
+      width="100%"
+      cellspacing="0"
+      cellpadding="0"
+      border="0"
+      style="background-color: #f6f7f9"
+    >
+      <tr>
+        <td align="center" class="email-wrapper" style="padding: 40px 16px">
+          <table
+            role="presentation"
+            width="100%"
+            cellspacing="0"
+            cellpadding="0"
+            border="0"
+            class="email-card"
+            style="
+              max-width: 580px;
+              width: 100%;
+              background-color: #ffffff;
+              border: 1px solid #e5e7eb;
+              border-radius: 8px;
+            "
+          >
+            <!-- Main content -->
+            <tr>
+              <td
+                class="email-body-padding"
+                style="padding: 36px; text-align: left"
+              >
+                <!-- Brand -->
+                <p
+                  style="
+                    margin: 0 0 28px;
+                    font-size: 20px;
+                    line-height: 28px;
+                    font-weight: 700;
+                    color: #99101b;
+                    text-align: left;
+                  "
+                >
+                  {{ site_name }}
+                </p>
+
+                <!-- Status -->
+                <table
+                  role="presentation"
+                  cellspacing="0"
+                  cellpadding="0"
+                  border="0"
+                  align="left"
+                  style="margin: 0 0 18px"
+                >
+                  <tr>
+                    {% if is_accepted %}
+                    <td
+                      style="
+                        padding: 6px 10px;
+                        background-color: #f0fdf4;
+                        border: 1px solid #bbf7d0;
+                        border-radius: 4px;
+                        font-size: 12px;
+                        line-height: 16px;
+                        font-weight: 700;
+                        color: #166534;
+                        text-transform: uppercase;
+                        letter-spacing: 0.4px;
+                      "
+                    >
+                      Accepted
+                    </td>
+                    {% else %}
+                    <td
+                      style="
+                        padding: 6px 10px;
+                        background-color: #fef2f2;
+                        border: 1px solid #fecaca;
+                        border-radius: 4px;
+                        font-size: 12px;
+                        line-height: 16px;
+                        font-weight: 700;
+                        color: #991b1b;
+                        text-transform: uppercase;
+                        letter-spacing: 0.4px;
+                      "
+                    >
+                      Unavailable
+                    </td>
+                    {% endif %}
+                  </tr>
+                </table>
+
+                <!-- Clear the floated status badge -->
+                <div style="clear: both"></div>
+
+                <!-- Heading -->
+                <h1
+                  class="email-heading"
+                  style="
+                    margin: 0 0 16px;
+                    font-size: 24px;
+                    line-height: 32px;
+                    color: #111827;
+                    text-align: left;
+                  "
+                >
+                  {% if is_accepted %} Your hire request was accepted {% else %}
+                  Your hire request could not be accepted {% endif %}
+                </h1>
+
+                <p
+                  style="
+                    margin: 0 0 12px;
+                    font-size: 16px;
+                    line-height: 24px;
+                    color: #4b5563;
+                    text-align: left;
+                  "
+                >
+                  Hi <strong>{{ customer.full_name }}</strong>,
+                </p>
+
+                {% if is_accepted %}
+                <p
+                  style="
+                    margin: 0 0 28px;
+                    font-size: 15px;
+                    line-height: 24px;
+                    color: #4b5563;
+                    text-align: left;
+                  "
+                >
+                  <strong>{{ seller.full_name }}</strong> accepted your request
+                  for <strong>{{ service_name }}</strong>.
+                </p>
+                {% else %}
+                <p
+                  style="
+                    margin: 0 0 28px;
+                    font-size: 15px;
+                    line-height: 24px;
+                    color: #4b5563;
+                    text-align: left;
+                  "
+                >
+                  <strong>{{ seller.full_name }}</strong> is unavailable for
+                  your requested booking time for
+                  <strong>{{ service_name }}</strong>.
+                </p>
+                {% endif %}
+
+                <!-- Service information -->
+                <h2
+                  class="email-subheading"
+                  style="
+                    margin: 0 0 12px;
+                    font-size: 16px;
+                    line-height: 24px;
+                    color: #111827;
+                    text-align: left;
+                  "
+                >
+                  Service details
+                </h2>
+
+                <table
+                  role="presentation"
+                  width="100%"
+                  cellspacing="0"
+                  cellpadding="0"
+                  border="0"
+                  class="detail-table"
+                  style="margin: 0 0 28px; border-top: 1px solid #e5e7eb"
+                >
+                  <tr>
+                    <td
+                      style="
+                        width: 120px;
+                        padding: 12px 0;
+                        border-bottom: 1px solid #e5e7eb;
+                        font-size: 14px;
+                        line-height: 20px;
+                        color: #6b7280;
+                        text-align: left;
+                      "
+                    >
+                      Seller
+                    </td>
+
+                    <td
+                      style="
+                        padding: 12px 0;
+                        border-bottom: 1px solid #e5e7eb;
+                        font-size: 14px;
+                        line-height: 20px;
+                        color: #111827;
+                        text-align: left;
+                      "
+                    >
+                      {{ seller.full_name }}
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td
+                      style="
+                        width: 120px;
+                        padding: 12px 0;
+                        border-bottom: 1px solid #e5e7eb;
+                        font-size: 14px;
+                        line-height: 20px;
+                        color: #6b7280;
+                        text-align: left;
+                      "
+                    >
+                      Brand
+                    </td>
+
+                    <td
+                      style="
+                        padding: 12px 0;
+                        border-bottom: 1px solid #e5e7eb;
+                        font-size: 14px;
+                        line-height: 20px;
+                        color: #111827;
+                        text-align: left;
+                      "
+                    >
+                      {{ brand.brand_name }}
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td
+                      style="
+                        width: 120px;
+                        padding: 12px 0;
+                        border-bottom: 1px solid #e5e7eb;
+                        font-size: 14px;
+                        line-height: 20px;
+                        color: #6b7280;
+                        text-align: left;
+                      "
+                    >
+                      Service
+                    </td>
+
+                    <td
+                      style="
+                        padding: 12px 0;
+                        border-bottom: 1px solid #e5e7eb;
+                        font-size: 14px;
+                        line-height: 20px;
+                        color: #111827;
+                        text-align: left;
+                      "
+                    >
+                      {{ service_name }}
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Booking information -->
+                <h2
+                  class="email-subheading"
+                  style="
+                    margin: 0 0 12px;
+                    font-size: 16px;
+                    line-height: 24px;
+                    color: #111827;
+                    text-align: left;
+                  "
+                >
+                  Booking details
+                </h2>
+
+                {% for slot in booking_details %}
+                <table
+                  role="presentation"
+                  width="100%"
+                  cellspacing="0"
+                  cellpadding="0"
+                  border="0"
+                  class="detail-row-table"
+                  style="
+                    margin: 0 0 16px;
+                    border: 1px solid #e5e7eb;
+                    border-radius: 6px;
+                  "
+                >
+                  <tr>
+                    <td
+                      colspan="2"
+                      style="
+                        padding: 11px 14px;
+                        background-color: #f9fafb;
+                        border-bottom: 1px solid #e5e7eb;
+                        font-size: 13px;
+                        line-height: 20px;
+                        font-weight: 700;
+                        color: #111827;
+                        text-align: left;
+                      "
+                    >
+                      Booking {{ slot.number }}
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td
+                      class="detail-label"
+                      style="
+                        width: 110px;
+                        padding: 10px 14px 5px;
+                        font-size: 13px;
+                        line-height: 20px;
+                        color: #6b7280;
+                        text-align: left;
+                      "
+                    >
+                      Date
+                    </td>
+
+                    <td
+                      style="
+                        padding: 10px 14px 5px;
+                        font-size: 13px;
+                        line-height: 20px;
+                        color: #111827;
+                        text-align: left;
+                      "
+                    >
+                      {{ slot.date }}
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td
+                      class="detail-label"
+                      style="
+                        width: 110px;
+                        padding: 5px 14px;
+                        font-size: 13px;
+                        line-height: 20px;
+                        color: #6b7280;
+                        text-align: left;
+                      "
+                    >
+                      Time
+                    </td>
+
+                    <td
+                      style="
+                        padding: 5px 14px;
+                        font-size: 13px;
+                        line-height: 20px;
+                        color: #111827;
+                        text-align: left;
+                      "
+                    >
+                      {{ slot.start_time }} – {{ slot.end_time }}
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td
+                      class="detail-label"
+                      style="
+                        width: 110px;
+                        padding: 5px 14px;
+                        font-size: 13px;
+                        line-height: 20px;
+                        color: #6b7280;
+                        text-align: left;
+                      "
+                    >
+                      Venue
+                    </td>
+
+                    <td
+                      style="
+                        padding: 5px 14px;
+                        font-size: 13px;
+                        line-height: 20px;
+                        color: #111827;
+                        text-align: left;
+                      "
+                    >
+                      {{ slot.venue_name }}
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td
+                      class="detail-label"
+                      style="
+                        width: 110px;
+                        padding: 5px 14px 10px;
+                        font-size: 13px;
+                        line-height: 20px;
+                        color: #6b7280;
+                        vertical-align: top;
+                        text-align: left;
+                      "
+                    >
+                      Address
+                    </td>
+
+                    <td
+                      style="
+                        padding: 5px 14px 10px;
+                        font-size: 13px;
+                        line-height: 20px;
+                        color: #111827;
+                        text-align: left;
+                      "
+                    >
+                      {{ slot.venue_address }}
+                    </td>
+                  </tr>
+                </table>
+                {% endfor %}
+
+                <!-- Seller note -->
+                {% if seller_note %}
+                <h2
+                  class="email-subheading"
+                  style="
+                    margin: 28px 0 10px;
+                    font-size: 16px;
+                    line-height: 24px;
+                    color: #111827;
+                    text-align: left;
+                  "
+                >
+                  Seller note
+                </h2>
+
+                <p
+                  style="
+                    margin: 0;
+                    padding: 14px 16px;
+                    background-color: #f9fafb;
+                    border-left: 3px solid #99101b;
+                    font-size: 14px;
+                    line-height: 22px;
+                    color: #4b5563;
+                    text-align: left;
+                  "
+                >
+                  {{ seller_note }}
+                </p>
+                {% endif %}
+
+                <!-- Next step -->
+                {% if is_accepted %}
+                <p
+                  style="
+                    margin: 26px 0 0;
+                    font-size: 14px;
+                    line-height: 22px;
+                    color: #4b5563;
+                    text-align: left;
+                  "
+                >
+                  Your booking is now confirmed. You can review the full details
+                  from your account.
+                </p>
+                {% else %}
+                <p
+                  style="
+                    margin: 26px 0 0;
+                    font-size: 14px;
+                    line-height: 22px;
+                    color: #4b5563;
+                    text-align: left;
+                  "
+                >
+                  You can explore other available services and submit a new hire
+                  request.
+                </p>
+                {% endif %}
+
+                <!-- Action button -->
+                {% if dashboard_url %}
+                <table
+                  role="presentation"
+                  cellspacing="0"
+                  cellpadding="0"
+                  border="0"
+                  class="email-cta-table"
+                  style="margin-top: 28px"
+                >
+                  <tr>
+                    <td
+                      align="left"
+                      style="background-color: #99101b; border-radius: 5px"
+                    >
+                      <a
+                        href="{{ dashboard_url }}"
+                        class="email-cta"
+                        style="
+                          display: inline-block;
+                          padding: 12px 20px;
+                          color: #ffffff;
+                          text-decoration: none;
+                          font-size: 14px;
+                          line-height: 20px;
+                          font-weight: 700;
+                        "
+                      >
+                        {% if is_accepted %} View booking details {% else %}
+                        Browse services {% endif %}
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+                {% endif %}
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td
+                class="email-footer-padding"
+                style="
+                  padding: 20px 36px;
+                  border-top: 1px solid #e5e7eb;
+                  font-size: 12px;
+                  line-height: 19px;
+                  color: #9ca3af;
+                  text-align: left;
+                "
+              >
+                This is an automated email from {{ site_name }}. Please do not
+                reply.
+                <br />
+                © {% now "Y" %} {{ site_name }}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

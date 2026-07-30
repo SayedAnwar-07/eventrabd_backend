@@ -1,0 +1,10 @@
+Hi {{ customer_name }},
+
+{{ seller_name }} created an invoice for your booking.
+
+Invoice number: {{ invoice_number }}
+Issue date: {{ issue_date|date:"F j, Y" }}
+
+Log in to your EventraBD account to review the complete invoice details.
+
+EventraBD Team
