@@ -4,6 +4,7 @@ from django.conf import settings
 from django.core.mail import send_mail
 from django.db import transaction
 from django.utils import timezone
+from django.core.exceptions import ObjectDoesNotExist
 
 from rest_framework import serializers
 
@@ -390,7 +391,18 @@ class HireDetailSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-        read_only_fields = fields
+        read_only_fields = [
+            "id",
+            "status",
+            "customer_note",
+            "seller_note",
+            "accepted_at",
+            "rejected_at",
+            "cancelled_at",
+            "completed_at",
+            "created_at",
+            "updated_at",
+        ]
         
     def get_invoice(self, obj):
         if not hasattr(obj, "invoice"):
@@ -463,6 +475,17 @@ class HireCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Your account is inactive."
             )
+
+        # FIX: brand or seller may not exist for a malformed/incomplete
+        # service record; accessing them directly raised an unhandled
+        # ObjectDoesNotExist (500) instead of a clean validation error.
+        try:
+            seller = service.brand.seller
+        except ObjectDoesNotExist:
+            raise serializers.ValidationError(
+                "This service does not belong to a valid seller."
+            )
+
 
         if not service.brand.seller.is_active:
             raise serializers.ValidationError(
@@ -557,6 +580,13 @@ class HireSellerDecisionSerializer(serializers.Serializer):
         if seller.role != "seller":
             raise serializers.ValidationError(
                 "Only sellers can accept or reject hire requests."
+            )
+
+        try:
+            owner_id = hire.service.brand.seller_id
+        except ObjectDoesNotExist:
+            raise serializers.ValidationError(
+                "This hire's service does not belong to a valid seller."
             )
 
         if seller.pk != hire.service.brand.seller_id:

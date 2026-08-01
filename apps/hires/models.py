@@ -1,5 +1,5 @@
-from django.core.exceptions import ValidationError
-from django.db import models
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.db import models, transaction
 from django.db.models import F, Q
 from django.utils import timezone
 
@@ -139,17 +139,27 @@ class Hire(UIDMixin, TimeStampedModel):
                 errors["customer"] = "Only a customer can create a hire request."
 
         if self.service_id:
-            seller = self.service.brand.seller
-
-            if seller.role != "seller":
+            # FIX: self.service.brand or brand.seller can be missing/unset,
+            # which raises ObjectDoesNotExist deep inside attribute access
+            # instead of surfacing as a clean validation error.
+            try:
+                seller = self.service.brand.seller
+            except ObjectDoesNotExist:
                 errors["service"] = (
                     "The selected service does not belong to a valid seller."
                 )
+                seller = None
 
-            if self.customer_id and self.customer_id == seller.id:
-                errors["customer"] = (
-                    "A seller cannot hire their own service."
-                )
+            if seller is not None:
+                if seller.role != "seller":
+                    errors["service"] = (
+                        "The selected service does not belong to a valid seller."
+                    )
+
+                if self.customer_id and self.customer_id == seller.id:
+                    errors["customer"] = (
+                        "A seller cannot hire their own service."
+                    )
 
         if self.status == HireStatus.ACCEPTED and not self.accepted_at:
             errors["accepted_at"] = (
@@ -170,7 +180,7 @@ class Hire(UIDMixin, TimeStampedModel):
             errors["completed_at"] = (
                 "completed_at is required when the hire is completed."
             )
-        
+
         # Customer and service become permanent after hire creation.
         if not self._state.adding:
             previous = (
@@ -198,7 +208,7 @@ class Hire(UIDMixin, TimeStampedModel):
 
         if errors:
             raise ValidationError(errors)
-        
+
     def save(self, *args, **kwargs):
         """
         Enforce model validation whenever a hire is saved.
@@ -206,78 +216,89 @@ class Hire(UIDMixin, TimeStampedModel):
 
         self.full_clean()
         return super().save(*args, **kwargs)
-
+    
     def accept(self, seller, note=None):
-        """
-        Accept the hire request only when none of its booking slots
-        conflict with another accepted booking for the same service.
-        """
-
         if seller.pk != self.seller.pk:
             raise ValidationError(
                 "Only the owner of this service can accept the hire request."
             )
 
-        if self.status != HireStatus.PENDING:
-            raise ValidationError(
-                f"A {self.status} hire request cannot be accepted."
+        with transaction.atomic():
+            current = (
+                Hire.objects
+                .select_for_update()
+                .get(pk=self.pk)
             )
 
-        existing_bookings = HireBookingSlot.objects.filter(
-            hire__service_id=self.service_id,
-            hire__status__in=[
-                HireStatus.ACCEPTED,
-                HireStatus.COMPLETED,
-            ],
-        ).exclude(
-            hire_id=self.pk,
-        )
+            if current.status != HireStatus.PENDING:
+                raise ValidationError(
+                    f"A {current.status} hire request cannot be accepted."
+                )
 
-        for requested_slot in self.booking_slots.all():
-            conflict_exists = existing_bookings.filter(
-                starts_at__lt=requested_slot.ends_at,
-                ends_at__gt=requested_slot.starts_at,
-            ).exists()
+            existing_bookings = (
+                HireBookingSlot.objects
+                .select_for_update()
+                .filter(
+                    hire__service_id=self.service_id,
+                    hire__status__in=[
+                        HireStatus.ACCEPTED,
+                        HireStatus.COMPLETED,
+                    ],
+                )
+                .exclude(hire_id=self.pk)
+            )
 
-            if conflict_exists:
-                raise ValidationError({
-                    "booking_slots": (
-                        "This service already has an accepted booking "
-                        "that overlaps with one of the requested time slots."
-                    )
-                })
+            for requested_slot in self.booking_slots.all():
+                conflict_exists = existing_bookings.filter(
+                    starts_at__lt=requested_slot.ends_at,
+                    ends_at__gt=requested_slot.starts_at,
+                ).exists()
 
-        self.status = HireStatus.ACCEPTED
-        self.accepted_at = timezone.now()
-        self.rejected_at = None
+                if conflict_exists:
+                    raise ValidationError({
+                        "booking_slots": (
+                            "This service already has an accepted booking "
+                            "that overlaps with one of the requested time slots."
+                        )
+                    })
 
-        if note is not None:
-            self.seller_note = note
+            self.status = HireStatus.ACCEPTED
+            self.accepted_at = timezone.now()
+            self.rejected_at = None
 
-        self.save()
+            if note is not None:
+                self.seller_note = note
+
+            self.save()
 
     def reject(self, seller, note=None):
-        """
-        Reject the hire request.
-        """
         if seller.pk != self.seller.pk:
             raise ValidationError(
                 "Only the owner of this service can reject the hire request."
             )
 
-        if self.status != HireStatus.PENDING:
-            raise ValidationError(
-                f"A {self.status} hire request cannot be rejected."
+        # FIX: same row-locking gap as accept() — lock and re-check
+        # status before writing.
+        with transaction.atomic():
+            current = (
+                Hire.objects
+                .select_for_update()
+                .get(pk=self.pk)
             )
 
-        self.status = HireStatus.REJECTED
-        self.rejected_at = timezone.now()
-        self.accepted_at = None
+            if current.status != HireStatus.PENDING:
+                raise ValidationError(
+                    f"A {current.status} hire request cannot be rejected."
+                )
 
-        if note is not None:
-            self.seller_note = note
+            self.status = HireStatus.REJECTED
+            self.rejected_at = timezone.now()
+            self.accepted_at = None
 
-        self.save()
+            if note is not None:
+                self.seller_note = note
+
+            self.save()
 
     def cancel(self, user):
         """
@@ -448,7 +469,7 @@ class HireBookingSlot(UIDMixin, TimeStampedModel):
                     "cancelled, or completed."
                 )
             })
-            
+
         if hasattr(related_hire, "invoice"):
             raise ValidationError({
                 "hire": (
@@ -457,14 +478,8 @@ class HireBookingSlot(UIDMixin, TimeStampedModel):
                 )
             })
 
-        if related_hire.status != HireStatus.PENDING:
-            raise ValidationError({
-                "hire": (
-                    "Booking details cannot be changed after the "
-                    "hire request has been accepted, rejected, "
-                    "cancelled, or completed."
-                )
-            })
+        # FIX: this was a verbatim duplicate of the PENDING check above
+        # (dead code, removed).
 
     def clean(self):
         super().clean()

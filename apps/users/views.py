@@ -119,12 +119,25 @@ class VerifyOtpView(generics.GenericAPIView):
     throttle_classes = [OtpRateThrottle]
 
     def post(self, request):
-        serializer = self.get_serializer(
-            data=request.data,
-        )
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        return Response(serializer.validated_data)
+        user = serializer.validated_data["user"]
+
+        tokens = get_tokens_for_user(user)
+
+        response = Response(
+            {
+                "message": "Account verified successfully.",
+                "access": tokens["access"],
+                "user": UserProfileSerializer(user).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+        set_refresh_cookie(response, tokens["refresh"])
+
+        return prevent_token_cache(response)
 
 
 # ── Normal User Login ──────────────────────────────────────────────────────────

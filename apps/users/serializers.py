@@ -74,6 +74,7 @@ class RegisterSerializer(serializers.ModelSerializer):
     confirm_password = serializers.CharField(
         write_only=True,
         trim_whitespace=False,
+        required=False,
     )
 
     bio = serializers.CharField(
@@ -138,17 +139,25 @@ class RegisterSerializer(serializers.ModelSerializer):
         confirm_password = data.get("confirm_password")
         role = data.get("role", "customer")
 
-        if password != confirm_password:
-            raise serializers.ValidationError(
-                {
-                    "confirm_password": (
-                        "Passwords do not match."
-                    )
-                }
-            )
+        if role in ("seller", "admin"):
+            if not confirm_password:
+                raise serializers.ValidationError(
+                    {
+                        "confirm_password": (
+                            "This field is required."
+                        )
+                    }
+                )
 
-        # Unsaved user object allows Django's similarity validators
-        # to compare the password with email and full name.
+            if password != confirm_password:
+                raise serializers.ValidationError(
+                    {
+                        "confirm_password": (
+                            "Passwords do not match."
+                        )
+                    }
+                )
+
         candidate_user = User(
             email=data.get("email"),
             full_name=data.get("full_name"),
@@ -188,25 +197,16 @@ class RegisterSerializer(serializers.ModelSerializer):
             if errors:
                 raise serializers.ValidationError(errors)
 
-        if role == "customer":
-            if not data.get("contact_number", "").strip():
-                raise serializers.ValidationError(
-                    {
-                        "contact_number": (
-                            "Contact number is required."
-                        )
-                    }
-                )
-
         return data
 
     def create(self, validated_data):
-        validated_data.pop("confirm_password")
+        validated_data.pop("confirm_password", None)
         password = validated_data.pop("password")
 
         for field in (
             "service_area",
             "whatsapp_number",
+            "contact_number",
         ):
             value = validated_data.get(field)
 
@@ -249,7 +249,6 @@ class RegisterSerializer(serializers.ModelSerializer):
             )
 
         return user
-
 
 # ── Verify Registration OTP ────────────────────────────────────────────────────
 
@@ -307,7 +306,7 @@ class VerifyOtpSerializer(serializers.Serializer):
         )
 
         return {
-            "message": "Account verified successfully."
+            "user": user,
         }
 
 
