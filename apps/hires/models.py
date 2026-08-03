@@ -400,6 +400,13 @@ class HireBookingSlot(UIDMixin, TimeStampedModel):
         null=True,
         help_text="Optional directions or location instructions.",
     )
+    
+    google_map_link = models.URLField(
+        max_length=500,
+        blank=True,
+        null=True,
+        help_text="Optional Google Maps shared location link.",
+    )
 
     class Meta:
         verbose_name = "Hire Booking Slot"

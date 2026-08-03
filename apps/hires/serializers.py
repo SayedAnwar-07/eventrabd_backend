@@ -15,6 +15,7 @@ from apps.users.models import User
 
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -317,6 +318,12 @@ class HireBookingSlotSerializer(serializers.ModelSerializer):
         allow_null=True,
         max_length=20,
     )
+    google_map_link = serializers.URLField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        max_length=500,
+    )
     class Meta:
         model = HireBookingSlot
         fields = [
@@ -326,6 +333,7 @@ class HireBookingSlotSerializer(serializers.ModelSerializer):
             "venue_name",
             "venue_address",
             "location_note",
+            "google_map_link",
             "created_at",
         ]
 
@@ -336,11 +344,35 @@ class HireBookingSlotSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         starts_at = attrs.get("starts_at")
+        google_map_link = attrs.get("google_map_link")
 
         if starts_at and starts_at < timezone.now():
             raise serializers.ValidationError({
                 "starts_at": "Booking date and time cannot be in the past."
             })
+
+        if google_map_link:
+            parsed_url = urlparse(google_map_link)
+
+            allowed_hosts = {
+                "maps.app.goo.gl",
+                "maps.google.com",
+                "www.google.com",
+            }
+
+            if (
+                parsed_url.scheme != "https"
+                or parsed_url.netloc not in allowed_hosts
+                or (
+                    parsed_url.netloc == "www.google.com"
+                    and not parsed_url.path.startswith("/maps")
+                )
+            ):
+                raise serializers.ValidationError({
+                    "google_map_link": (
+                        "Only Google Maps shared links are supported."
+                    )
+                })
 
         return attrs
 
