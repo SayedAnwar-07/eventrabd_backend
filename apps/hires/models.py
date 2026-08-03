@@ -250,15 +250,13 @@ class Hire(UIDMixin, TimeStampedModel):
 
             for requested_slot in self.booking_slots.all():
                 conflict_exists = existing_bookings.filter(
-                    starts_at__lt=requested_slot.ends_at,
-                    ends_at__gt=requested_slot.starts_at,
+                    starts_at=requested_slot.starts_at,
                 ).exists()
 
                 if conflict_exists:
                     raise ValidationError({
                         "booking_slots": (
-                            "This service already has an accepted booking "
-                            "that overlaps with one of the requested time slots."
+                            "This service already has a booking for the requested start time."
                         )
                     })
 
@@ -378,12 +376,14 @@ class HireBookingSlot(UIDMixin, TimeStampedModel):
         db_index=True,
         help_text="Event starting date and time.",
     )
-
-    ends_at = models.DateTimeField(
-        db_index=True,
-        help_text="Event ending date and time.",
+    
+    whatsapp_number = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        help_text="Customer WhatsApp number.",
     )
-
+    
     venue_name = models.CharField(
         max_length=255,
         blank=True,
@@ -407,15 +407,10 @@ class HireBookingSlot(UIDMixin, TimeStampedModel):
         ordering = ["starts_at"]
 
         constraints = [
-            models.CheckConstraint(
-                check=Q(ends_at__gt=F("starts_at")),
-                name="hire_slot_end_after_start",
-            ),
             models.UniqueConstraint(
                 fields=[
                     "hire",
                     "starts_at",
-                    "ends_at",
                 ],
                 name="unique_time_slot_per_hire",
             ),
@@ -423,7 +418,7 @@ class HireBookingSlot(UIDMixin, TimeStampedModel):
 
         indexes = [
             models.Index(fields=["hire", "starts_at"]),
-            models.Index(fields=["starts_at", "ends_at"]),
+            models.Index(fields=["starts_at"]),
         ]
 
     def __str__(self):
@@ -478,24 +473,6 @@ class HireBookingSlot(UIDMixin, TimeStampedModel):
                 )
             })
 
-        # FIX: this was a verbatim duplicate of the PENDING check above
-        # (dead code, removed).
-
-    def clean(self):
-        super().clean()
-
-        errors = {}
-
-        if self.starts_at and self.ends_at:
-            if self.ends_at <= self.starts_at:
-                errors["ends_at"] = (
-                    "The ending time must be later than the starting time."
-                )
-
-        if errors:
-            raise ValidationError(errors)
-
-        self.ensure_mutable()
 
     def save(self, *args, **kwargs):
         """
@@ -503,6 +480,7 @@ class HireBookingSlot(UIDMixin, TimeStampedModel):
         Calling full_clean() here enforces validation outside serializers too.
         """
 
+        self.ensure_mutable()
         self.full_clean()
         return super().save(*args, **kwargs)
 

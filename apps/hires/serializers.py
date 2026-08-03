@@ -48,13 +48,11 @@ def get_booking_details(hire):
         start=1,
     ):
         starts_at = timezone.localtime(slot.starts_at)
-        ends_at = timezone.localtime(slot.ends_at)
 
         booking_details.append({
             "number": index,
             "date": starts_at.strftime("%d %B %Y"),
             "start_time": starts_at.strftime("%I:%M %p"),
-            "end_time": ends_at.strftime("%I:%M %p"),
             "venue_name": slot.venue_name or "Not provided",
             "venue_address": slot.venue_address or "Not provided",
             "location_note": slot.location_note or "None",
@@ -272,6 +270,7 @@ class UserSummarySerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "full_name",
+            "profile_image_url",
             "email",
             "contact_number",
         ]
@@ -286,6 +285,7 @@ class BrandSummarySerializer(serializers.ModelSerializer):
             "brand_name",
             "logo",
             "whatsapp_number",
+            "district",
             "division",
         ]
         read_only_fields = fields
@@ -310,12 +310,19 @@ class EventServiceSummarySerializer(serializers.ModelSerializer):
 
 
 class HireBookingSlotSerializer(serializers.ModelSerializer):
+    customer_whatsapp_number = serializers.CharField(
+        source="whatsapp_number",
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        max_length=20,
+    )
     class Meta:
         model = HireBookingSlot
         fields = [
             "id",
             "starts_at",
-            "ends_at",
+            "customer_whatsapp_number",
             "venue_name",
             "venue_address",
             "location_note",
@@ -329,16 +336,10 @@ class HireBookingSlotSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         starts_at = attrs.get("starts_at")
-        ends_at = attrs.get("ends_at")
 
         if starts_at and starts_at < timezone.now():
             raise serializers.ValidationError({
                 "starts_at": "Booking date and time cannot be in the past."
-            })
-
-        if starts_at and ends_at and ends_at <= starts_at:
-            raise serializers.ValidationError({
-                "ends_at": "End time must be later than start time."
             })
 
         return attrs
@@ -507,7 +508,6 @@ class HireCreateSerializer(serializers.ModelSerializer):
         for slot in booking_slots:
             slot_key = (
                 slot["starts_at"],
-                slot["ends_at"],
             )
 
             if slot_key in unique_slots:

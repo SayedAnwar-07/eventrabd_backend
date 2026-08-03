@@ -87,11 +87,11 @@ class Invoice(UIDMixin, TimeStampedModel):
     customer_email_snapshot = models.EmailField(
         editable=False,
     )
-
-    customer_contact_snapshot = models.CharField(
-        max_length=30,
+    
+    customer_whatsapp_snapshot = models.CharField(
+        max_length=20,
         blank=True,
-        editable=False,
+        null=True,
     )
 
     seller_name_snapshot = models.CharField(
@@ -286,8 +286,11 @@ class Invoice(UIDMixin, TimeStampedModel):
 
         self.customer_name_snapshot = customer.full_name
         self.customer_email_snapshot = customer.email
-        self.customer_contact_snapshot = (
-            customer.contact_number or ""
+        booking_slot = self.hire.booking_slots.first()
+
+        self.customer_whatsapp_snapshot = (
+            booking_slot.whatsapp_number
+            if booking_slot else ""
         )
 
         self.seller_name_snapshot = seller.full_name

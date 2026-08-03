@@ -10,7 +10,7 @@ class HireBookingSlotInline(admin.TabularInline):
 
     fields = [
         "starts_at",
-        "ends_at",
+        "whatsapp_number",
         "venue_name",
         "venue_address",
         "location_note",
@@ -131,7 +131,7 @@ class HireBookingSlotAdmin(admin.ModelAdmin):
         "id",
         "hire",
         "starts_at",
-        "ends_at",
+        "whatsapp_number",
         "venue_name",
         "created_at",
     ]

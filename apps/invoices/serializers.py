@@ -252,15 +252,9 @@ class InvoiceDetailSerializer(
     def get_customer(self, obj):
         return {
             "id": str(obj.hire.customer_id),
-            "full_name": (
-                obj.customer_name_snapshot
-            ),
-            "email": (
-                obj.customer_email_snapshot
-            ),
-            "contact_number": (
-                obj.customer_contact_snapshot
-            ),
+            "full_name": obj.customer_name_snapshot,
+            "email": obj.customer_email_snapshot,
+            "whatsapp_number": obj.customer_whatsapp_snapshot,
         }
 
     def get_seller(self, obj):
