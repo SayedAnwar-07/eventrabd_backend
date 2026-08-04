@@ -5,6 +5,7 @@ from django.core.mail import send_mail
 from django.db import transaction
 from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
+from decimal import Decimal
 
 from rest_framework import serializers
 
@@ -380,6 +381,7 @@ class HireBookingSlotSerializer(serializers.ModelSerializer):
 class HireDetailSerializer(serializers.ModelSerializer):
     customer = UserSummarySerializer(read_only=True)
     invoice = serializers.SerializerMethodField()
+    service_summary = serializers.SerializerMethodField()
 
     seller = UserSummarySerializer(
         source="service.brand.seller",
@@ -409,6 +411,7 @@ class HireDetailSerializer(serializers.ModelSerializer):
             "seller",
             "brand",
             "service",
+            "service_summary",
             "status",
             "is_accept",
             "can_create_invoice",
@@ -436,6 +439,23 @@ class HireDetailSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+        
+    def get_service_summary(self, obj):
+        slot_count = len(obj.booking_slots.all())
+
+        shift_charge = obj.service.shift_charge or Decimal("0.00")
+        shift_hour = obj.service.shift_hour or 0
+
+        total_amount = shift_charge * slot_count
+        total_shift_hours = shift_hour * slot_count
+
+        return {
+            "slot_count": slot_count,
+            "shift_hour_per_slot": shift_hour,
+            "total_shift_hours": total_shift_hours,
+            "shift_charge_per_slot": f"{shift_charge:.2f}",
+            "total_amount": f"{total_amount:.2f}",
+        }
         
     def get_invoice(self, obj):
         if not hasattr(obj, "invoice"):

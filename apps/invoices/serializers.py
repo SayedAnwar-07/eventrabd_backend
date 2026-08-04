@@ -164,6 +164,7 @@ class InvoiceDetailSerializer(
     seller = serializers.SerializerMethodField()
     brand = serializers.SerializerMethodField()
     service = serializers.SerializerMethodField()
+    service_summary = serializers.SerializerMethodField()
 
     sub_total = serializers.DecimalField(
         max_digits=12,
@@ -221,6 +222,7 @@ class InvoiceDetailSerializer(
             "seller",
             "brand",
             "service",
+            "service_summary",
             "issue_date",
             "due_payment_last_date",
             "service_price",
@@ -280,6 +282,21 @@ class InvoiceDetailSerializer(
             "brand_name": (
                 obj.brand_name_snapshot
             ),
+        }
+    
+    def get_service_summary(self, obj):
+        service = obj.hire.service
+        slot_count = obj.hire.booking_slots.count()
+
+        shift_hour = service.shift_hour or 0
+        shift_charge = service.shift_charge or ZERO_AMOUNT
+
+        return {
+            "slot_count": slot_count,
+            "shift_hour_per_slot": shift_hour,
+            "total_shift_hours": shift_hour * slot_count,
+            "shift_charge_per_slot": f"{shift_charge:.2f}",
+            "total_amount": f"{obj.service_price:.2f}",
         }
 
     def get_service(self, obj):
@@ -355,7 +372,7 @@ class InvoiceCreateSerializer(
     service_price = serializers.DecimalField(
         max_digits=12,
         decimal_places=2,
-        min_value=MINIMUM_SERVICE_PRICE,
+        read_only=True,
     )
 
     discount_price = serializers.DecimalField(
@@ -374,7 +391,6 @@ class InvoiceCreateSerializer(
 
     class Meta:
         model = Invoice
-
         fields = [
             "hire",
             "due_payment_last_date",
@@ -400,15 +416,11 @@ class InvoiceCreateSerializer(
 
         if (
             user.is_authenticated
-            and getattr(
-                user,
-                "role",
-                None,
-            )
-            == "seller"
+            and getattr(user, "role", None) == "seller"
         ):
             self.fields["hire"].queryset = (
-                Hire.objects.select_related(
+                Hire.objects
+                .select_related(
                     "customer",
                     "service",
                     "service__brand",
@@ -441,9 +453,7 @@ class InvoiceCreateSerializer(
                 "Only sellers can create invoices."
             )
 
-        seller_id = (
-            hire.service.brand.seller_id
-        )
+        seller_id = hire.service.brand.seller_id
 
         if seller_id != user.id:
             raise PermissionDenied(
@@ -457,12 +467,9 @@ class InvoiceCreateSerializer(
                 "for an accepted hire."
             )
 
-        if Invoice.objects.filter(
-            hire=hire
-        ).exists():
+        if Invoice.objects.filter(hire=hire).exists():
             raise serializers.ValidationError(
-                "An invoice already exists "
-                "for this hire."
+                "An invoice already exists for this hire."
             )
 
         return hire
@@ -473,13 +480,35 @@ class InvoiceCreateSerializer(
     ):
         if value < timezone.localdate():
             raise serializers.ValidationError(
-                "Due payment date cannot be "
-                "in the past."
+                "Due payment date cannot be in the past."
             )
 
         return value
 
     def validate(self, attrs):
+        hire = attrs.get("hire")
+
+        if hire is None:
+            raise serializers.ValidationError({
+                "hire": "A hire request is required."
+            })
+
+        slot_count = hire.booking_slots.count()
+
+        if slot_count < 1:
+            raise serializers.ValidationError({
+                "hire": "This hire has no booking slots."
+            })
+
+        shift_charge = (
+            hire.service.shift_charge
+            or ZERO_AMOUNT
+        )
+
+        attrs["service_price"] = (
+            shift_charge * slot_count
+        )
+
         return validate_invoice_financial_data(
             attrs
         )
@@ -503,20 +532,15 @@ class InvoiceCreateSerializer(
                         "service__brand",
                         "service__brand__seller",
                     )
-                    .get(
-                        pk=submitted_hire.pk
-                    )
+                    .get(pk=submitted_hire.pk)
                 )
 
                 if hire.status != HireStatus.ACCEPTED:
-                    raise serializers.ValidationError(
-                        {
-                            "hire": (
-                                "The hire is no longer "
-                                "accepted."
-                            )
-                        }
-                    )
+                    raise serializers.ValidationError({
+                        "hire": (
+                            "The hire is no longer accepted."
+                        )
+                    })
 
                 if (
                     hire.service.brand.seller_id
@@ -530,14 +554,36 @@ class InvoiceCreateSerializer(
                 if Invoice.objects.filter(
                     hire=hire
                 ).exists():
-                    raise serializers.ValidationError(
-                        {
-                            "hire": (
-                                "An invoice already "
-                                "exists for this hire."
-                            )
-                        }
-                    )
+                    raise serializers.ValidationError({
+                        "hire": (
+                            "An invoice already exists "
+                            "for this hire."
+                        )
+                    })
+
+                slot_count = (
+                    hire.booking_slots.count()
+                )
+
+                if slot_count < 1:
+                    raise serializers.ValidationError({
+                        "hire": (
+                            "This hire has no booking slots."
+                        )
+                    })
+
+                shift_charge = (
+                    hire.service.shift_charge
+                    or ZERO_AMOUNT
+                )
+
+                validated_data["service_price"] = (
+                    shift_charge * slot_count
+                )
+
+                validate_invoice_financial_data(
+                    validated_data
+                )
 
                 invoice = Invoice.objects.create(
                     hire=hire,
@@ -547,7 +593,7 @@ class InvoiceCreateSerializer(
                 create_invoice_created_notification(
                     invoice
                 )
-                
+
                 transaction.on_commit(
                     lambda invoice_pk=invoice.pk: (
                         send_invoice_created_email(
@@ -555,32 +601,22 @@ class InvoiceCreateSerializer(
                         )
                     ),
                     robust=True,
-)
+                )
 
         except Hire.DoesNotExist as error:
-            raise serializers.ValidationError(
-                {
-                    "hire": (
-                        "The selected hire does not "
-                        "exist."
-                    )
-                }
-            ) from error
-
-        except DjangoValidationError as error:
-            raise convert_model_validation_error(
-                error
-            ) from error
+            raise serializers.ValidationError({
+                "hire": (
+                    "The selected hire does not exist."
+                )
+            }) from error
 
         except IntegrityError as error:
-            raise serializers.ValidationError(
-                {
-                    "hire": (
-                        "An invoice already exists "
-                        "for this hire."
-                    )
-                }
-            ) from error
+            raise serializers.ValidationError({
+                "hire": (
+                    "An invoice already exists "
+                    "for this hire."
+                )
+            }) from error
 
         return invoice
 
@@ -588,7 +624,7 @@ class InvoiceCreateSerializer(
         return InvoiceDetailSerializer(
             instance,
             context=self.context,
-        ).data
+        ).data   
 
 
 # =========================================================
