@@ -11,6 +11,52 @@ from apps.hires.models import Hire, HireStatus
 
 ZERO_AMOUNT = Decimal("0.00")
 
+MAX_TERMS_CONDITIONS = 3
+MAX_TERM_LENGTH = 300
+
+
+def validate_terms_conditions(value):
+    """
+    Validate invoice terms and conditions.
+
+    Rules:
+        - Must be a list.
+        - Maximum 3 items.
+        - Every item must be non-empty text.
+        - Every item can contain maximum 300 characters.
+    """
+
+    if not isinstance(value, list):
+        raise ValidationError(
+            "Terms and conditions must be provided as a list."
+        )
+
+    if len(value) > MAX_TERMS_CONDITIONS:
+        raise ValidationError(
+            "A maximum of 3 terms and conditions is allowed."
+        )
+
+    for index, item in enumerate(value, start=1):
+        if not isinstance(item, str):
+            raise ValidationError(
+                f"Terms and conditions item {index} must be text."
+            )
+
+        cleaned_item = item.strip()
+
+        if not cleaned_item:
+            raise ValidationError(
+                f"Terms and conditions item {index} cannot be empty."
+            )
+
+        if len(cleaned_item) > MAX_TERM_LENGTH:
+            raise ValidationError(
+                (
+                    f"Terms and conditions item {index} cannot "
+                    f"contain more than {MAX_TERM_LENGTH} characters."
+                )
+            )
+
 
 class Invoice(UIDMixin, TimeStampedModel):
     """
@@ -119,6 +165,18 @@ class Invoice(UIDMixin, TimeStampedModel):
         blank=True,
         null=True,
         help_text="Optional invoice note or payment instructions.",
+    )
+    
+    terms_conditions = models.JSONField(
+        default=list,
+        blank=True,
+        validators=[
+            validate_terms_conditions,
+        ],
+        help_text=(
+            "Optional invoice terms and conditions. "
+            "Maximum 3 bullet points are allowed."
+        ),
     )
 
     class Meta:

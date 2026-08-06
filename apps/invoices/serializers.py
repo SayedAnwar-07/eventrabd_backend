@@ -16,7 +16,12 @@ from apps.notifications.services import (
     create_invoice_updated_notification,
 )
 
-from .models import Invoice, ZERO_AMOUNT
+from .models import (
+    Invoice,
+    MAX_TERM_LENGTH,
+    MAX_TERMS_CONDITIONS,
+    ZERO_AMOUNT,
+)
 
 
 MINIMUM_SERVICE_PRICE = Decimal("0.01")
@@ -236,6 +241,7 @@ class InvoiceDetailSerializer(
             "is_overdue",
             "payment_status",
             "seller_note",
+            "terms_conditions",
             "customer_agreed",
             "can_edit",
             "can_customer_decide",
@@ -388,6 +394,17 @@ class InvoiceCreateSerializer(
         min_value=ZERO_AMOUNT,
         default=ZERO_AMOUNT,
     )
+    
+    terms_conditions = serializers.ListField(
+        child=serializers.CharField(
+            max_length=MAX_TERM_LENGTH,
+            allow_blank=False,
+            trim_whitespace=True,
+        ),
+        required=False,
+        allow_empty=True,
+        max_length=MAX_TERMS_CONDITIONS,
+    )
 
     class Meta:
         model = Invoice
@@ -398,6 +415,7 @@ class InvoiceCreateSerializer(
             "discount_price",
             "advance_payment",
             "seller_note",
+            "terms_conditions",
         ]
 
     def __init__(
@@ -823,6 +841,17 @@ class InvoiceUpdateSerializer(
         allow_blank=True,
         allow_null=True,
     )
+    
+    terms_conditions = serializers.ListField(
+        child=serializers.CharField(
+            max_length=MAX_TERM_LENGTH,
+            allow_blank=False,
+            trim_whitespace=True,
+        ),
+        required=False,
+        allow_empty=True,
+        max_length=MAX_TERMS_CONDITIONS,
+    )
 
     class Meta:
         model = Invoice
@@ -833,6 +862,7 @@ class InvoiceUpdateSerializer(
             "discount_price",
             "advance_payment",
             "seller_note",
+            "terms_conditions",
         ]
 
     def validate_due_payment_last_date(
