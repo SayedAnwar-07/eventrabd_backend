@@ -1,9 +1,10 @@
 from decimal import Decimal
-
+from django.core.validators import MinValueValidator
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
+from django.db.models import Sum
 
 from apps.core.models import TimeStampedModel, UIDMixin
 from apps.hires.models import Hire, HireStatus
@@ -99,6 +100,12 @@ class Invoice(UIDMixin, TimeStampedModel):
         default=timezone.localdate,
         db_index=True,
     )
+    
+    # shift_count = models.PositiveIntegerField(
+    #     default=1,
+    #     validators=[MinValueValidator(1)],
+    #     help_text="Number of service shifts included in this invoice.",
+    # )
 
     due_payment_last_date = models.DateField(
         db_index=True,
@@ -205,6 +212,26 @@ class Invoice(UIDMixin, TimeStampedModel):
             f"{self.customer_name_snapshot} - "
             f"{self.service_name_snapshot}"
         )
+    
+    @property
+    def shift_count(self):
+        """
+        Total shift count across every booking slot (event date).
+
+        Backed by InvoiceSlotShift rows instead of a single stored
+        value, so each booking slot can carry its own shift count.
+
+        Example:
+            10 Aug 2026 -> 3 shifts
+            16 Aug 2026 -> 2 shifts
+            invoice.shift_count -> 5
+        """
+
+        aggregate = self.slot_shifts.aggregate(
+            total=Sum("shift_count"),
+        )
+
+        return aggregate["total"] or 0
 
     # ---------------------------------------------------------
     # Relationships
@@ -370,4 +397,69 @@ class Invoice(UIDMixin, TimeStampedModel):
 
         self.full_clean()
 
+        return super().save(*args, **kwargs)
+    
+class InvoiceSlotShift(TimeStampedModel):
+    """
+    Shift count assigned to one specific booking slot (event date)
+    within an invoice.
+
+    invoice.service_price is calculated as:
+        service.shift_charge * sum(shift_count across all slot shifts)
+    """
+
+    invoice = models.ForeignKey(
+        Invoice,
+        on_delete=models.CASCADE,
+        related_name="slot_shifts",
+    )
+
+    booking_slot = models.ForeignKey(
+        "hires.HireBookingSlot",
+        on_delete=models.PROTECT,
+        related_name="invoice_slot_shift",
+    )
+
+    shift_count = models.PositiveIntegerField(
+        default=1,
+        validators=[MinValueValidator(1)],
+        help_text="Number of shifts assigned to this booking slot.",
+    )
+
+    class Meta:
+        verbose_name = "Invoice Slot Shift"
+        verbose_name_plural = "Invoice Slot Shifts"
+        ordering = ["booking_slot__starts_at"]
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=["invoice", "booking_slot"],
+                name="unique_invoice_slot_shift",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.invoice.invoice_number} - "
+            f"{self.booking_slot.starts_at} - "
+            f"{self.shift_count} shift(s)"
+        )
+
+    def clean(self):
+        super().clean()
+
+        if (
+            self.booking_slot_id
+            and self.invoice_id
+            and self.booking_slot.hire_id != self.invoice.hire_id
+        ):
+            raise ValidationError({
+                "booking_slot": (
+                    "This booking slot does not belong to the "
+                    "hire request linked to this invoice."
+                )
+            })
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
         return super().save(*args, **kwargs)
