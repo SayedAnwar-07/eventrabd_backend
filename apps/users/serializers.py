@@ -359,11 +359,39 @@ class ForgotPasswordSerializer(serializers.Serializer):
         except User.DoesNotExist:
             user = None
 
-        if user:
-            otp = generate_otp()
+        if not user:
+            raise serializers.ValidationError(
+                {
+                    "email": [
+                        "Email not found."
+                    ]
+                }
+            )
 
-            user.refresh_token = hash_otp(otp)
-            user.otp_expires_at = otp_expiry()
+
+        otp = generate_otp()
+
+        user.refresh_token = hash_otp(otp)
+        user.otp_expires_at = otp_expiry()
+
+        user.save(
+            update_fields=[
+                "refresh_token",
+                "otp_expires_at",
+            ]
+        )
+
+
+        success, _ = send_otp_email(
+            user=user,
+            otp=otp,
+            template_name="emails/forgot_password_otp.html",
+        )
+
+
+        if not success:
+            user.refresh_token = ""
+            user.otp_expires_at = None
 
             user.save(
                 update_fields=[
@@ -372,32 +400,9 @@ class ForgotPasswordSerializer(serializers.Serializer):
                 ]
             )
 
-            success, _ = send_otp_email(
-                user=user,
-                otp=otp,
-                template_name=(
-                    "emails/forgot_password_otp.html"
-                ),
-            )
 
-            # Do not keep an active OTP that the user did not receive.
-            if not success:
-                user.refresh_token = ""
-                user.otp_expires_at = None
-
-                user.save(
-                    update_fields=[
-                        "refresh_token",
-                        "otp_expires_at",
-                    ]
-                )
-
-        # Always return the same response to prevent email enumeration.
         return {
-            "message": (
-                "If this email is registered, "
-                "an OTP has been sent."
-            )
+            "message": "OTP sent successfully."
         }
 
 
@@ -464,7 +469,7 @@ class ResetPasswordSerializer(serializers.Serializer):
         ):
             raise serializers.ValidationError(
                 {
-                    "otp": "Invalid OTP."
+                    "otp": "Invalid OTP. Please check and try again."
                 }
             )
 

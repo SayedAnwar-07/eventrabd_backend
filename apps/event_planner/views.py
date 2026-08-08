@@ -5,6 +5,7 @@ from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, NotFound
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.throttling import ScopedRateThrottle
+from apps.core.responses import success_response
 
 from .models import EventBrand, EventBrandSlugHistory
 from .serializers import EventBrandSerializer, EventBrandListSerializer
@@ -207,23 +208,16 @@ class EventBrandDeleteView(APIView):
             )
 
         if brand.seller_id != request.user.id:
-            return Response(
-                {
-                    "success": False,
-                    "message": "You cannot delete this brand.",
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
+            raise PermissionDenied("You cannot edit this brand.")
 
         brand_name = brand.brand_name
         brand_slug = brand.slug
         brand.delete()
 
-        return Response(
-            {
-                "success": True,
-                "message": f"{brand_name} deleted successfully.",
+        return success_response(
+            message=f"{brand_name} deleted successfully.",
+            data={
                 "deleted_slug": brand_slug,
             },
-            status=status.HTTP_200_OK,
+            status_code=status.HTTP_200_OK,
         )
