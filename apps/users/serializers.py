@@ -14,6 +14,7 @@ from rest_framework import serializers
 
 from apps.users.models import User
 from apps.users.utils import generate_otp, send_otp_email
+from apps.event_planner.utils import validate_image_size
 
 
 # ── OTP Helpers ────────────────────────────────────────────────────────────────
@@ -523,6 +524,9 @@ class ResetPasswordSerializer(serializers.Serializer):
 class UserProfileSerializer(serializers.ModelSerializer):
     brand_slug = serializers.SerializerMethodField()
 
+    # ADD: return Cloudinary full URL
+    profile_image_url = serializers.SerializerMethodField()
+
     class Meta:
         model = User
 
@@ -554,7 +558,9 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "username",
             "username_last_changed",
             "brand_slug",
+            "profile_image_url",
         ]
+
 
     def get_brand_slug(self, obj):
         if obj.role != "seller":
@@ -570,7 +576,29 @@ class UserProfileSerializer(serializers.ModelSerializer):
         )
 
 
+    def get_profile_image_url(self, obj):
+        if not obj.profile_image:
+            return None
+
+        try:
+            return obj.profile_image.build_url(
+                transformation=[
+                    {
+                        "width": 500,
+                        "height": 500,
+                        "crop": "limit",
+                    }
+                ],
+                quality="auto",
+                fetch_format="auto",
+            )
+
+        except Exception:
+            return None
+
+
 class UpdateProfileSerializer(serializers.ModelSerializer):
+
     class Meta:
         model = User
 
@@ -578,12 +606,25 @@ class UpdateProfileSerializer(serializers.ModelSerializer):
             "full_name",
             "username",
             "bio",
-            "profile_image_url",
+
+            # CHANGE:
+            # "profile_image_url"
+            # TO:
+            "profile_image",
+
             "contact_number",
             "whatsapp_number",
             "office_address",
             "service_area",
         ]
+
+
+    def validate_profile_image(self, value):
+        if value:
+            validate_image_size(value)
+
+        return value
+
 
     def validate_username(self, value):
         user = self.instance
@@ -607,8 +648,11 @@ class UpdateProfileSerializer(serializers.ModelSerializer):
                 "and hyphens are allowed."
             )
 
+
         if value != user.username:
+
             if user.username_last_changed:
+
                 days = (
                     timezone.now()
                     - user.username_last_changed
@@ -621,6 +665,7 @@ class UpdateProfileSerializer(serializers.ModelSerializer):
                             f"Try again after {60 - days} days."
                         )
                     )
+
 
             if (
                 User.objects

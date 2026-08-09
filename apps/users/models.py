@@ -2,6 +2,7 @@ from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseU
 from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
+from cloudinary.models import CloudinaryField
 
 from apps.core.models import TimeStampedModel, UIDMixin
 
@@ -66,7 +67,12 @@ class User(UIDMixin, TimeStampedModel, AbstractBaseUser, PermissionsMixin):
 
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default="customer")
 
-    profile_image_url = models.URLField(blank=True, null=True)
+    profile_image = CloudinaryField(
+        "profile_image",
+        blank=True,
+        null=True,
+    )
+    
     bio = models.TextField(blank=True, null=True)
 
     contact_number = models.CharField(max_length=30, blank=True, null=True)

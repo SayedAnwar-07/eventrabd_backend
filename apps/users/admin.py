@@ -21,20 +21,21 @@ class UserAdmin(BaseUserAdmin):
     # IMAGE PREVIEW
     # ---------------------------
     def profile_image_preview(self, obj):
-        if obj.profile_image_url:
+        if obj.profile_image:
             return format_html(
                 '<img src="{}" style="width:40px; height:40px; border-radius:50%; object-fit:cover;" />',
-                obj.profile_image_url
+                obj.profile_image.url
             )
         return "—"
     profile_image_preview.short_description = "Profile"
 
     def profile_image_tag(self, obj):
-        if obj.profile_image_url:
+        if obj.profile_image:
             return format_html(
                 '<img src="{}" style="width:120px; height:120px; border-radius:50%; object-fit:cover;" />',
-                obj.profile_image_url
+                obj.profile_image.url
             )
+
         return "No Image"
 
     readonly_fields = ("profile_image_tag", "slug", "username_last_changed")
