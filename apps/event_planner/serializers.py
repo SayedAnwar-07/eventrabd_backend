@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from django.utils import timezone
 from rest_framework import serializers
+from apps.event_services.utils import is_google_drive_or_youtube_url
 
 from apps.event_planner.utils import validate_image_size
 from apps.users.models import User
@@ -85,8 +86,6 @@ class BrandServiceSerializer(serializers.ModelSerializer):
             "shift_charge",
             "description",
             "shift_hour",
-            "sound_system_payment",
-            "lighting_payment",
             "gallery_images",
             "image_limit",
             "created_at",
@@ -142,6 +141,7 @@ class EventBrandSerializer(serializers.ModelSerializer):
             "slug",
             "logo",
             "logo_url",
+            "portfolio_link",
             "whatsapp_number",
             "division",
             "district",
@@ -179,6 +179,14 @@ class EventBrandSerializer(serializers.ModelSerializer):
     def validate_logo(self, value):
         if value:
             validate_image_size(value)
+        return value
+    
+    def validate_portfolio_link(self, value):
+        if value and not is_google_drive_or_youtube_url(value):
+            raise serializers.ValidationError(
+                "Only Google Drive or YouTube URL is allowed."
+            )
+
         return value
 
     def get_is_owner(self, obj):

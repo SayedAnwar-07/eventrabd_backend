@@ -89,22 +89,6 @@ class EventService(UIDMixin, TimeStampedModel):
         help_text="Used for Photography, Videography, Hall booking service.",
     )
 
-    sound_system_payment = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        blank=True,
-        null=True,
-        help_text="Used for Sound System and Lighting.",
-    )
-
-    lighting_payment = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        blank=True,
-        null=True,
-        help_text="Used for Sound System and Lighting.",
-    )
-
     class Meta:
         verbose_name = "Event Service"
         verbose_name_plural = "Event Services"
@@ -134,8 +118,6 @@ class EventService(UIDMixin, TimeStampedModel):
         elif self.service_name == ServiceType.VIDEOGRAPHY:
             if not self.shift_hour:
                 errors["shift_hour"] = "shift_hour is required for Videography."
-            if not self.drive_link:
-                errors["drive_link"] = "drive_link is required for Videography."
 
         elif self.service_name == ServiceType.STAGE_DESIGNER:
             pass

@@ -104,8 +104,6 @@ class EventServiceSerializer(serializers.ModelSerializer):
             "shift_charge",
             "description",
             "shift_hour",
-            "sound_system_payment",
-            "lighting_payment",
             "gallery_images",
             "image_limit",
             "add_gallery_images",
@@ -170,16 +168,6 @@ class EventServiceSerializer(serializers.ModelSerializer):
         drive_link = attrs.get("drive_link", getattr(self.instance, "drive_link", None))
         shift_hour = attrs.get("shift_hour", getattr(self.instance, "shift_hour", None))
 
-        sound_system_payment = attrs.get(
-            "sound_system_payment",
-            getattr(self.instance, "sound_system_payment", None),
-        )
-
-        lighting_payment = attrs.get(
-            "lighting_payment",
-            getattr(self.instance, "lighting_payment", None),
-        )
-
         cover_photo = attrs.get("cover_photo")
 
         add_gallery_images = attrs.get("add_gallery_images", [])
@@ -194,8 +182,6 @@ class EventServiceSerializer(serializers.ModelSerializer):
         elif service_name == ServiceType.VIDEOGRAPHY:
             if not shift_hour:
                 errors["shift_hour"] = "shift_hour is required for Videography."
-            if not drive_link:
-                errors["drive_link"] = "drive_link is required for Videography."
 
         elif service_name == ServiceType.STAGE_DESIGNER:
             pass
@@ -204,10 +190,7 @@ class EventServiceSerializer(serializers.ModelSerializer):
             pass
 
         elif service_name == ServiceType.SOUND_LIGHTING:
-            if sound_system_payment is None:
-                errors["sound_system_payment"] = "sound_system_payment is required."
-            if lighting_payment is None:
-                errors["lighting_payment"] = "lighting_payment is required."
+            pass
 
         if brand and service_name:
             qs = EventService.objects.filter(brand=brand, service_name=service_name)

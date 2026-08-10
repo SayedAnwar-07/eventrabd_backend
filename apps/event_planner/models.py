@@ -38,6 +38,12 @@ class EventBrand(UIDMixin, TimeStampedModel):
         db_index=True,
         blank=True,
     )
+    
+    portfolio_link = models.URLField(
+        blank=True,
+        null=True,
+        help_text="Optional Google Drive or YouTube portfolio URL.",
+    )
 
     # Tracks when brand_name was last changed — used for 60-day lock
     brand_name_last_changed = models.DateTimeField(
