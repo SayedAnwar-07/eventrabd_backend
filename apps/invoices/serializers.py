@@ -1093,13 +1093,10 @@ class InvoiceCustomerDecisionSerializer(
                 locked_invoice.save()
 
         except Invoice.DoesNotExist as error:
-            raise serializers.ValidationError(
-                {
-                    "detail": (
-                        "Invoice does not exist."
-                    )
-                }
-            ) from error
+            raise serializers.ValidationError({
+                "hire":
+                "An invoice can only be created for an accepted hire request."
+            }) from error
 
         except DjangoValidationError as error:
             raise convert_model_validation_error(

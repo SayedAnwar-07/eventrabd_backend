@@ -267,8 +267,11 @@ def send_hire_rejection_email(hire_pk):
         )
 
 class UserSummarySerializer(serializers.ModelSerializer):
+    profile_image_url = serializers.SerializerMethodField()
+
     class Meta:
         model = User
+
         fields = [
             "id",
             "full_name",
@@ -276,7 +279,28 @@ class UserSummarySerializer(serializers.ModelSerializer):
             "email",
             "contact_number",
         ]
+
         read_only_fields = fields
+
+    def get_profile_image_url(self, obj):
+        if not obj.profile_image:
+            return None
+
+        try:
+            return obj.profile_image.build_url(
+                transformation=[
+                    {
+                        "width": 500,
+                        "height": 500,
+                        "crop": "limit",
+                    }
+                ],
+                quality="auto",
+                fetch_format="auto",
+            )
+
+        except Exception:
+            return None
 
 
 class BrandSummarySerializer(serializers.ModelSerializer):
