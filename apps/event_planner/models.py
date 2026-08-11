@@ -1,5 +1,5 @@
 import cloudinary.models
-
+import unicodedata
 from django.db import models
 from django.utils import timezone
 from django.core.exceptions import ValidationError
@@ -17,6 +17,15 @@ class EventBrand(UIDMixin, TimeStampedModel):
         on_delete=models.CASCADE,
         related_name="event_brand",
         limit_choices_to={"role": "seller"},
+    )
+    
+    display_name = models.CharField(
+        max_length=255,
+        unique=True,
+        db_index=True,
+        null=True,
+        blank=True,
+        help_text="Unique public-facing display name in Bangla or English.",
     )
 
     brand_name = models.CharField(
@@ -45,7 +54,6 @@ class EventBrand(UIDMixin, TimeStampedModel):
         help_text="Optional Google Drive or YouTube portfolio URL.",
     )
 
-    # Tracks when brand_name was last changed — used for 60-day lock
     brand_name_last_changed = models.DateTimeField(
         null=True,
         blank=True,
@@ -54,7 +62,6 @@ class EventBrand(UIDMixin, TimeStampedModel):
 
     whatsapp_number = models.CharField(max_length=30)
 
-   # --- replaces the old free-text service_area field ---
     division = models.CharField(
         max_length=30,
         choices=DIVISION_CHOICES,

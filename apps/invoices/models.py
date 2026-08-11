@@ -157,6 +157,13 @@ class Invoice(UIDMixin, TimeStampedModel):
         blank=True,
         editable=False,
     )
+    
+    display_name_snapshot = models.CharField( 
+        max_length=255,
+        editable=False,
+        blank=True,
+        default="",
+    )
 
     brand_name_snapshot = models.CharField(
         max_length=255,
@@ -384,6 +391,7 @@ class Invoice(UIDMixin, TimeStampedModel):
         )
 
         self.brand_name_snapshot = brand.brand_name
+        self.display_name_snapshot = brand.display_name or "" 
         self.service_name_snapshot = (
             service.get_service_name_display()
         )

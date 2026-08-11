@@ -430,6 +430,7 @@ class InvoiceDetailSerializer(
             "brand_name": (
                 obj.brand_name_snapshot
             ),
+            "display_name": obj.display_name_snapshot,
         }
 
     def get_service_summary(self, obj):

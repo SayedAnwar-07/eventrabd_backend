@@ -23,6 +23,7 @@ class EventBrandMiniSerializer(serializers.ModelSerializer):
         model = EventBrand
         fields = [
             "id",
+            "display_name",
             "brand_name",
             "slug",
             "division",

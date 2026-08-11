@@ -1,5 +1,7 @@
-from datetime import timedelta
+import unicodedata
+from django.db import IntegrityError
 
+from datetime import timedelta
 from django.utils import timezone
 from rest_framework import serializers
 from apps.event_services.utils import is_google_drive_or_youtube_url
@@ -9,6 +11,8 @@ from apps.users.models import User
 from .models import EventBrand
 from apps.event_services.models import EventService, ServiceGalleryImage, COVER_PHOTO_ONLY_SERVICE_TYPES
 from apps.event_planner.constants import DIVISION_CHOICES, DIVISION_DISTRICTS
+import re
+from django.utils.text import slugify
 
 
 class SellerInfoSerializer(serializers.ModelSerializer):
@@ -131,12 +135,14 @@ class EventBrandSerializer(serializers.ModelSerializer):
 
     division = serializers.ChoiceField(choices=DIVISION_CHOICES)
     district = serializers.CharField()
+    display_name = serializers.CharField(max_length=255) 
 
     class Meta:
         model = EventBrand
 
         fields = [
             "id",
+            "display_name",
             "brand_name",
             "slug",
             "logo",
@@ -155,6 +161,7 @@ class EventBrandSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "slug", "created_at", "updated_at"]
         extra_kwargs = {
             "logo": {"write_only": True},
+            "brand_name": {"validators": []}, 
         }
 
     def get_logo_url(self, obj):
@@ -198,6 +205,13 @@ class EventBrandSerializer(serializers.ModelSerializer):
         return obj.seller_id == request.user.id
 
     def validate_brand_name(self, value):
+        # Only allow English letters, numbers, spaces, and basic
+        # punctuation (- & . ' ,) — no Bangla or other scripts
+        if not re.match(r"^[A-Za-z0-9\s\-\&\.\',]+$", value):
+            raise serializers.ValidationError(
+                "Brand name must be in English only. Other languages are not allowed."
+            )
+
         if self.instance and self.instance.brand_name != value:
             last_changed = self.instance.brand_name_last_changed
 
@@ -217,7 +231,41 @@ class EventBrandSerializer(serializers.ModelSerializer):
             qs = qs.exclude(pk=self.instance.pk)
 
         if qs.exists():
-            raise serializers.ValidationError("This brand name is already taken.")
+            raise serializers.ValidationError("This brand username is already taken.")
+
+        # Also block names that would collide once slugified,
+        # e.g. "Drissayoner Golpo" vs "Drissayoner-Golpo" —
+        # different strings, same resulting slug.
+        new_slug = slugify(value)
+
+        slug_qs = EventBrand.objects.filter(slug=new_slug)
+
+        if self.instance:
+            slug_qs = slug_qs.exclude(pk=self.instance.pk)
+
+        if slug_qs.exists():
+            raise serializers.ValidationError("This brand username is already taken.")
+
+        return value
+    
+    def validate_display_name(self, value):
+        # Unicode normalize (NFC) so visually-identical Bangla text
+        # with different combining-character sequences match as duplicates
+        value = unicodedata.normalize("NFC", value.strip())
+        value = " ".join(value.split())
+
+        if not value:
+            raise serializers.ValidationError("Display name cannot be empty.")
+
+        qs = EventBrand.objects.filter(display_name__iexact=value)
+
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+
+        if qs.exists():
+            raise serializers.ValidationError(
+                "This name already exists, try a new one."
+            )
 
         return value
 
@@ -257,7 +305,13 @@ class EventBrandSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         request = self.context["request"]
         validated_data["seller"] = request.user
-        return super().create(validated_data)
+
+        try:
+            return super().create(validated_data)
+        except IntegrityError:
+            raise serializers.ValidationError(
+                {"display_name": "This name already exists, try a new one."}
+            )
 
 
 class BrandListServiceSerializer(serializers.ModelSerializer):
@@ -290,6 +344,7 @@ class EventBrandListSerializer(serializers.ModelSerializer):
         model = EventBrand
         fields = [
             "id",
+            "display_name",
             "brand_name",
             "slug",
             "logo_url",

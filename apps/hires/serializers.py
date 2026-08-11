@@ -308,6 +308,7 @@ class BrandSummarySerializer(serializers.ModelSerializer):
         model = EventBrand
         fields = [
             "id",
+            "display_name",
             "brand_name",
             "logo",
             "whatsapp_number",
