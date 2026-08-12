@@ -1043,6 +1043,12 @@ class InvoiceCustomerDecisionSerializer(
 
         try:
             with transaction.atomic():
+                locked_hire = (
+                    Hire.objects
+                    .select_for_update()
+                    .get(pk=instance.hire_id)
+                )
+
                 locked_invoice = (
                     Invoice.objects
                     .select_for_update()
@@ -1056,47 +1062,73 @@ class InvoiceCustomerDecisionSerializer(
                     .get(pk=instance.pk)
                 )
 
-                if (
-                    locked_invoice.hire.customer_id
-                    != customer.id
-                ):
+                if locked_hire.customer_id != customer.id:
                     raise PermissionDenied(
                         "You cannot submit a decision "
                         "for this invoice."
                     )
 
-                if (
-                    locked_invoice.customer_agreed
-                    is not None
-                ):
+                if locked_invoice.customer_agreed is not None:
                     decision = (
                         "agreed"
                         if locked_invoice.customer_agreed
                         else "disagreed"
                     )
 
-                    raise serializers.ValidationError(
-                        {
-                            "customer_agreed": (
-                                f"You have already "
-                                f"{decision} with this "
-                                "invoice."
-                            )
-                        }
-                    )
+                    raise serializers.ValidationError({
+                        "customer_agreed": (
+                            f"You have already {decision} "
+                            "with this invoice."
+                        )
+                    })
+
+                customer_agreed = validated_data[
+                    "customer_agreed"
+                ]
+
+                if (
+                    customer_agreed
+                    and locked_hire.status
+                    != HireStatus.ACCEPTED
+                ):
+                    raise serializers.ValidationError({
+                        "customer_agreed": (
+                            "Only an accepted hire can "
+                            "be completed."
+                        )
+                    })
 
                 locked_invoice.customer_agreed = (
-                    validated_data[
-                        "customer_agreed"
-                    ]
+                    customer_agreed
                 )
 
                 locked_invoice.save()
 
+                # Customer agreement means
+                # the service/work is completed.
+                if customer_agreed:
+                    locked_hire.status = (
+                        HireStatus.COMPLETED
+                    )
+
+                    locked_hire.completed_at = (
+                        timezone.now()
+                    )
+
+                    locked_hire.save()
+
         except Invoice.DoesNotExist as error:
             raise serializers.ValidationError({
-                "hire":
-                "An invoice can only be created for an accepted hire request."
+                "detail": (
+                    "The invoice could not be found."
+                )
+            }) from error
+
+        except Hire.DoesNotExist as error:
+            raise serializers.ValidationError({
+                "detail": (
+                    "The hire request could not be found."
+                )
             }) from error
 
         except DjangoValidationError as error:
@@ -1105,12 +1137,6 @@ class InvoiceCustomerDecisionSerializer(
             ) from error
 
         return locked_invoice
-
-    def to_representation(self, instance):
-        return InvoiceDetailSerializer(
-            instance,
-            context=self.context,
-        ).data
 
 
 # =========================================================

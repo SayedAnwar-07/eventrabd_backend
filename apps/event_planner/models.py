@@ -1,5 +1,5 @@
 import cloudinary.models
-import unicodedata
+from decimal import Decimal
 from django.db import models
 from django.utils import timezone
 from django.core.exceptions import ValidationError
@@ -84,6 +84,16 @@ class EventBrand(UIDMixin, TimeStampedModel):
         blank=True,
         null=True,
     )
+    
+    rating_sum = models.PositiveBigIntegerField(
+        default=0,
+        editable=False,
+    )
+
+    review_count = models.PositiveBigIntegerField(
+        default=0,
+        editable=False,
+    )
 
     class Meta:
         verbose_name = "Event Brand"
@@ -140,6 +150,24 @@ class EventBrand(UIDMixin, TimeStampedModel):
                 raise ValidationError(
                     {"district": f"{self.district} is not a district of {self.division.title()} division."}
                 )
+                
+    @property
+    def rating_count(self):
+        return self.review_count
+
+
+    @property
+    def average_rating(self):
+        if not self.review_count:
+            return Decimal("0.00")
+
+        return (
+            Decimal(self.rating_sum)
+            / Decimal(self.review_count)
+            / Decimal("2")
+        ).quantize(
+            Decimal("0.01")
+        )
 
 
 class EventBrandSlugHistory(models.Model):

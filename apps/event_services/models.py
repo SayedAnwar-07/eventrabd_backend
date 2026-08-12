@@ -88,6 +88,16 @@ class EventService(UIDMixin, TimeStampedModel):
         null=True,
         help_text="Used for Photography, Videography, Hall booking service.",
     )
+    
+    rating_sum = models.PositiveBigIntegerField(
+        default=0,
+        editable=False,
+    )
+
+    review_count = models.PositiveBigIntegerField(
+        default=0,
+        editable=False,
+    )
 
     class Meta:
         verbose_name = "Event Service"
@@ -128,7 +138,7 @@ class EventService(UIDMixin, TimeStampedModel):
 
         elif self.service_name == ServiceType.EVENT_HALL:
             if not self.shift_hour:
-                errors["shift_hour"] = "shift_hour is required for ."
+                errors["shift_hour"] = "shift_hour is required for Event Hall."
 
         if errors:
             raise ValidationError(errors)
@@ -142,6 +152,39 @@ class EventService(UIDMixin, TimeStampedModel):
     @property
     def image_limit(self):
         return SERVICE_IMAGE_LIMITS.get(self.service_name, 0)
+    
+    @property
+    def rating_count(self):
+        """
+        Every review requires a rating,
+        so rating_count == review_count.
+        """
+
+        return self.review_count
+
+
+    @property
+    def average_rating(self):
+        """
+        Public star rating.
+
+        Internal:
+            rating_sum = sum of 2-10 rating values
+
+        Public:
+            average = rating_sum / review_count / 2
+        """
+
+        if not self.review_count:
+            return Decimal("0.00")
+
+        return (
+            Decimal(self.rating_sum)
+            / Decimal(self.review_count)
+            / Decimal("2")
+        ).quantize(
+            Decimal("0.01")
+        )
 
 
 class ServiceGalleryImage(UIDMixin, TimeStampedModel):

@@ -78,6 +78,16 @@ class BrandServiceSerializer(serializers.ModelSerializer):
     cover_photo_url = serializers.SerializerMethodField()
     gallery_images = serializers.SerializerMethodField()
     image_limit = serializers.SerializerMethodField()
+    rating = serializers.DecimalField(
+        source="average_rating",
+        max_digits=3,
+        decimal_places=2,
+        read_only=True,
+    )
+
+    rating_count = serializers.IntegerField(
+        read_only=True,
+    )
 
     class Meta:
         model = EventService
@@ -89,6 +99,9 @@ class BrandServiceSerializer(serializers.ModelSerializer):
             "drive_link",
             "shift_charge",
             "description",
+            "rating",
+            "rating_count",
+            "review_count",
             "shift_hour",
             "gallery_images",
             "image_limit",
@@ -136,6 +149,17 @@ class EventBrandSerializer(serializers.ModelSerializer):
     division = serializers.ChoiceField(choices=DIVISION_CHOICES)
     district = serializers.CharField()
     display_name = serializers.CharField(max_length=255) 
+    
+    rating = serializers.DecimalField(
+        source="average_rating",
+        max_digits=3,
+        decimal_places=2,
+        read_only=True,
+    )
+
+    rating_count = serializers.IntegerField(
+        read_only=True,
+    )
 
     class Meta:
         model = EventBrand
@@ -152,6 +176,9 @@ class EventBrandSerializer(serializers.ModelSerializer):
             "division",
             "district",
             "short_description",
+            "rating",
+            "rating_count",
+            "review_count",
             "seller_info",
             "services",
             "is_owner",
@@ -339,6 +366,17 @@ class EventBrandListSerializer(serializers.ModelSerializer):
     logo_url = serializers.SerializerMethodField()
 
     is_owner = serializers.SerializerMethodField()
+    
+    rating = serializers.DecimalField(
+        source="average_rating",
+        max_digits=3,
+        decimal_places=2,
+        read_only=True,
+    )
+
+    rating_count = serializers.IntegerField(
+        read_only=True,
+    )
 
     class Meta:
         model = EventBrand
@@ -352,6 +390,9 @@ class EventBrandListSerializer(serializers.ModelSerializer):
             "division",
             "district",
             "short_description",
+            "rating",
+            "rating_count",
+            "review_count",
             "seller_info",
             "services",
             "total_services",

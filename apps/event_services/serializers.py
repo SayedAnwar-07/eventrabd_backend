@@ -66,6 +66,17 @@ class EventServiceSerializer(serializers.ModelSerializer):
         source="brand",
         required=True,
     )
+    
+    rating = serializers.DecimalField(
+        source="average_rating",
+        max_digits=3,
+        decimal_places=2,
+        read_only=True,
+    )
+
+    rating_count = serializers.IntegerField(
+        read_only=True,
+    )
 
     cover_photo_url = serializers.SerializerMethodField()
     gallery_images = serializers.SerializerMethodField()
@@ -105,6 +116,9 @@ class EventServiceSerializer(serializers.ModelSerializer):
             "shift_charge",
             "description",
             "shift_hour",
+            "rating",
+            "rating_count",
+            "review_count",
             "gallery_images",
             "image_limit",
             "add_gallery_images",
@@ -132,9 +146,6 @@ class EventServiceSerializer(serializers.ModelSerializer):
             obj.gallery_images.all(),
             many=True,
         ).data
-
-    def get_image_limit(self, obj):
-        return obj.image_limit
 
     def get_image_limit(self, obj):
         return obj.image_limit

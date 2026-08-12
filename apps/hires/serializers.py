@@ -492,11 +492,14 @@ class HireDetailSerializer(serializers.ModelSerializer):
             "id": str(invoice.id),
             "invoice_number": invoice.invoice_number,
             "payment_status": invoice.payment_status,
+            "customer_agreed": invoice.customer_agreed,
             "total": invoice.total,
             "due_payment": invoice.due_payment,
             "due_payment_last_date": (
                 invoice.due_payment_last_date
             ),
+            "created_at": invoice.created_at,
+            "updated_at": invoice.updated_at,
         }
 
 
