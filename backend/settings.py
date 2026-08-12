@@ -53,6 +53,20 @@ CORS_ALLOW_HEADERS = (
     "pragma",
 )
 
+raw_csrf = os.getenv(
+    "CSRF_TRUSTED_ORIGINS",
+    "http://localhost:5173,"
+    "http://localhost:5174,"
+    "https://eventrabd-test.netlify.app,"
+    "https://eventrabd.vercel.app"
+)
+
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in raw_csrf.split(",")
+    if origin.strip()
+]
+
 # INSTALLED APPS
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -306,19 +320,6 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TIMEZONE = os.getenv("TIME_ZONE", "UTC")
-
-# CORS
-CORS_ALLOW_ALL_ORIGINS = False
-CORS_ALLOW_CREDENTIALS = True
-
-raw_cors = os.getenv(
-    "CORS_ALLOWED_ORIGINS",
-    "http://localhost:5173,http://localhost:5174,https://eventrabd-test.netlify.app,https://eventrabd-backend-1.onrender.com"
-)
-
-CORS_ALLOWED_ORIGINS = [
-    origin.strip() for origin in raw_cors.split(",") if origin.strip()
-]
 
 # OTP
 OTP_VALIDITY_SECONDS = int(os.getenv("OTP_VALIDITY", 600))
