@@ -522,13 +522,14 @@ class ReviewUpdateSerializer(
 
                 locked_review = (
                     Review.objects
-                    .select_for_update()
+                    .select_for_update(
+                        of=("self",)
+                    )
                     .select_related(
                         "hire",
                         "hire__customer",
                         "hire__service",
                         "hire__service__brand",
-                        "hire__invoice",
                     )
                     .get(
                         pk=instance.pk,
@@ -557,9 +558,7 @@ class ReviewUpdateSerializer(
 
                 changed = False
 
-                for field_name, new_value in (
-                    validated_data.items()
-                ):
+                for field_name, new_value in validated_data.items():
                     old_value = getattr(
                         locked_review,
                         field_name,
@@ -586,7 +585,6 @@ class ReviewUpdateSerializer(
                 )
 
                 if rating_difference:
-
                     EventService.objects.filter(
                         pk=locked_review.hire.service_id,
                     ).update(
@@ -623,9 +621,3 @@ class ReviewUpdateSerializer(
             raise convert_model_validation_error(
                 error
             ) from error
-
-    def to_representation(self, instance):
-        return ReviewDetailSerializer(
-            instance,
-            context=self.context,
-        ).data
