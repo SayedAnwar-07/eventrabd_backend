@@ -11,15 +11,93 @@ from rest_framework.views import APIView
 from apps.event_planner.models import EventBrand
 from apps.event_services.models import EventService, ServiceGalleryImage
 from apps.event_services.permissions import IsSellerBrandOwnerOrReadOnly
-from apps.event_services.serializers import EventServiceSerializer
+from apps.event_services.serializers import EventServiceSerializer, PublicEventServiceCardSerializer
 from apps.event_services.utils import safe_destroy_cloudinary_resource
-from rest_framework.generics import RetrieveUpdateAPIView
 
 class EventServicePagination(pagination.PageNumberPagination):
     page_size = 12
     page_size_query_param = "page_size"
     max_page_size = 50
 
+@method_decorator(never_cache, name="dispatch")
+@method_decorator(
+    cache_control(
+        private=True,
+        no_cache=True,
+        no_store=True,
+        must_revalidate=True,
+    ),
+    name="dispatch",
+)
+class PublicEventServiceListView(generics.ListAPIView):
+    serializer_class = PublicEventServiceCardSerializer
+    permission_classes = [permissions.AllowAny]
+    pagination_class = EventServicePagination
+
+    def get_queryset(self):
+        queryset = (
+            EventService.objects
+            .select_related(
+                "brand",
+                "brand__seller",
+            )
+            .prefetch_related(
+                Prefetch(
+                    "gallery_images",
+                    queryset=ServiceGalleryImage.objects.order_by(
+                        "sort_order",
+                        "-created_at",
+                    ),
+                )
+            )
+            .order_by("-created_at")
+        )
+
+        service_type = self.request.query_params.get(
+            "service_type"
+        )
+
+        search = self.request.query_params.get(
+            "search"
+        )
+
+        division = self.request.query_params.get(
+            "division"
+        )
+
+        district = self.request.query_params.get(
+            "district"
+        )
+
+        if service_type:
+            queryset = queryset.filter(
+                service_name__iexact=service_type.strip()
+            )
+
+        if division:
+            queryset = queryset.filter(
+                brand__division__iexact=division.strip()
+            )
+
+        if district:
+            queryset = queryset.filter(
+                brand__district__iexact=district.strip()
+            )
+
+        if search:
+            search = search.strip()
+
+            queryset = queryset.filter(
+                Q(service_name__icontains=search)
+                | Q(description__icontains=search)
+                | Q(brand__brand_name__icontains=search)
+                | Q(brand__display_name__icontains=search)
+                | Q(brand__division__icontains=search)
+                | Q(brand__district__icontains=search)
+                | Q(brand__seller__full_name__icontains=search)
+            )
+
+        return queryset
 
 class EventServiceBaseQueryMixin:
     serializer_class = EventServiceSerializer

@@ -14,7 +14,7 @@ from apps.event_services.utils import (
     is_google_drive_or_youtube_url,
     safe_destroy_cloudinary_resource,
 )
-
+from decimal import Decimal
 
 class EventBrandMiniSerializer(serializers.ModelSerializer):
     is_owner = serializers.SerializerMethodField()
@@ -334,3 +334,165 @@ class EventServiceSerializer(serializers.ModelSerializer):
                 )
 
         return instance
+    
+    
+class PublicServiceSellerSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(
+        source="seller.id",
+        read_only=True,
+    )
+
+    full_name = serializers.CharField(
+        source="seller.full_name",
+        read_only=True,
+    )
+
+    profile_image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EventBrand
+        fields = [
+            "id",
+            "full_name",
+            "profile_image_url",
+            "whatsapp_number",
+        ]
+
+        read_only_fields = fields
+
+    def get_profile_image_url(self, obj):
+        seller = obj.seller
+
+        if not seller.profile_image:
+            return None
+
+        try:
+            return seller.profile_image.build_url(
+                transformation=[
+                    {
+                        "width": 500,
+                        "height": 500,
+                        "crop": "limit",
+                    }
+                ],
+                quality="auto",
+                fetch_format="auto",
+            )
+        except Exception:
+            return None
+
+
+class PublicServiceBrandSerializer(serializers.ModelSerializer):
+    logo_url = serializers.SerializerMethodField()
+    rating = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EventBrand
+        fields = [
+            "id",
+            "display_name",
+            "brand_name",
+            "slug",
+            "logo_url",
+            "division",
+            "district",
+            "rating",
+            "review_count",
+        ]
+
+        read_only_fields = fields
+
+    def get_logo_url(self, obj):
+        if not obj.logo:
+            return None
+
+        try:
+            return obj.logo.build_url(
+                transformation=[
+                    {
+                        "width": 300,
+                        "height": 300,
+                        "crop": "limit",
+                    }
+                ],
+                quality="auto",
+                fetch_format="auto",
+            )
+        except Exception:
+            return None
+
+    def get_rating(self, obj):
+        if not obj.review_count:
+            return Decimal("0.00")
+
+        return (
+            Decimal(obj.rating_sum)
+            / Decimal(obj.review_count)
+            / Decimal("2")
+        ).quantize(
+            Decimal("0.01")
+        )
+
+
+class PublicEventServiceCardSerializer(serializers.ModelSerializer):
+    service_display_name = serializers.CharField(
+        source="get_service_name_display",
+        read_only=True,
+    )
+
+    rating = serializers.DecimalField(
+        source="average_rating",
+        max_digits=3,
+        decimal_places=2,
+        read_only=True,
+    )
+
+    cover_photo_url = serializers.SerializerMethodField()
+    gallery_images = serializers.SerializerMethodField()
+
+    seller = PublicServiceSellerSerializer(
+        source="brand",
+        read_only=True,
+    )
+
+    brand = PublicServiceBrandSerializer(
+        read_only=True,
+    )
+
+    class Meta:
+        model = EventService
+
+        fields = [
+            "id",
+            "service_name",
+            "service_display_name",
+            "slug",
+            "shift_charge",
+            "shift_hour",
+            "rating",
+            "review_count",
+            "cover_photo_url",
+            "gallery_images",
+            "seller",
+            "brand",
+        ]
+
+        read_only_fields = fields
+
+    def get_cover_photo_url(self, obj):
+        if obj.service_name not in COVER_PHOTO_ONLY_SERVICE_TYPES:
+            return None
+
+        try:
+            return obj.cover_photo.url if obj.cover_photo else None
+        except Exception:
+            return None
+
+    def get_gallery_images(self, obj):
+        if obj.service_name in COVER_PHOTO_ONLY_SERVICE_TYPES:
+            return []
+
+        return ServiceGalleryImageSerializer(
+            obj.gallery_images.all(),
+            many=True,
+        ).data

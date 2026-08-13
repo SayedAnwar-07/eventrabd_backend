@@ -7,9 +7,16 @@ from apps.event_services.views import (
     EventServiceGalleryImageDeleteView,
     EventServiceListView,
     EventServiceUpdateView,
+    PublicEventServiceListView,
 )
 
 urlpatterns = [
+     path(
+        "services/",
+        PublicEventServiceListView.as_view(),
+        name="public-services",
+    ),
+    
     # List all services of one brand
     path(
         "brands/<slug:brand_slug>/services/",
