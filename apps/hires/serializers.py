@@ -13,12 +13,14 @@ from apps.event_planner.models import EventBrand
 from apps.event_services.models import EventService
 from apps.hires.models import Hire, HireBookingSlot, HireStatus
 from apps.users.models import User
+from apps.packages.models import ServicePackage
 
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+
 
 def get_hire_for_email(hire_pk):
     """
@@ -30,8 +32,10 @@ def get_hire_for_email(hire_pk):
         .select_related(
             "customer",
             "service",
+            "package",
             "service__brand",
             "service__brand__seller",
+            "cancelled_by",
         )
         .prefetch_related("booking_slots")
         .get(pk=hire_pk)
@@ -122,8 +126,8 @@ def send_hire_notification_email(hire_pk):
             "customer": customer,
             "brand": service.brand,
             "service": service,
-            "service_name": service.get_service_name_display(),
-            "shift_charge": service.shift_charge,
+            "service_name": hire.booking_title,
+            "shift_charge": hire.booking_price,
             "customer_note": (
                 hire.customer_note or "No note provided"
             ),
@@ -265,6 +269,18 @@ def send_hire_rejection_email(hire_pk):
             "Failed to send rejection email for hire %s",
             hire_pk,
         )
+ 
+        
+class HirePackageSummarySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ServicePackage
+        fields = [
+            "id",
+            "package_title",
+            "package_price",
+        ]
+        read_only_fields = fields
+
 
 class UserSummarySerializer(serializers.ModelSerializer):
     profile_image_url = serializers.SerializerMethodField()
@@ -407,6 +423,17 @@ class HireDetailSerializer(serializers.ModelSerializer):
     customer = UserSummarySerializer(read_only=True)
     invoice = serializers.SerializerMethodField()
     service_summary = serializers.SerializerMethodField()
+    package = HirePackageSummarySerializer(read_only=True,)
+
+    booking_title = serializers.CharField(read_only=True,)
+
+    booking_price = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        read_only=True,
+    )
+
+    is_package_hire = serializers.BooleanField(read_only=True,)
 
     seller = UserSummarySerializer(
         source="service.brand.seller",
@@ -436,6 +463,11 @@ class HireDetailSerializer(serializers.ModelSerializer):
             "seller",
             "brand",
             "service",
+            "package",
+            "event_type",
+            "booking_title",
+            "booking_price",
+            "is_package_hire",
             "service_summary",
             "status",
             "is_accept",
@@ -468,13 +500,14 @@ class HireDetailSerializer(serializers.ModelSerializer):
     def get_service_summary(self, obj):
         slot_count = len(obj.booking_slots.all())
 
-        shift_charge = obj.service.shift_charge or Decimal("0.00")
+        shift_charge = obj.booking_price or Decimal("0.00")
         shift_hour = obj.service.shift_hour or 0
 
         total_amount = shift_charge * slot_count
         total_shift_hours = shift_hour * slot_count
 
         return {
+            "title": obj.booking_title,
             "slot_count": slot_count,
             "shift_hour_per_slot": shift_hour,
             "total_shift_hours": total_shift_hours,
@@ -511,6 +544,15 @@ class HireCreateSerializer(serializers.ModelSerializer):
             "brand__seller",
         ),
     )
+    
+    package = serializers.SlugRelatedField(
+        slug_field="id",
+        queryset=ServicePackage.objects.select_related(
+            "service",
+        ),
+        required=False,
+        allow_null=True,
+    )
 
     booking_slots = HireBookingSlotSerializer(
         many=True,
@@ -523,6 +565,8 @@ class HireCreateSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "service",
+            "package",
+            "event_type",
             "customer_note",
             "booking_slots",
             "status",
@@ -546,6 +590,16 @@ class HireCreateSerializer(serializers.ModelSerializer):
         customer = request.user
         service = attrs.get("service")
         booking_slots = attrs.get("booking_slots", [])
+        package = attrs.get("package")
+        
+        if package:
+            if package.service_id != service.id:
+                raise serializers.ValidationError({
+                    "package": (
+                        "The selected package does not belong "
+                        "to the selected service."
+                    )
+                })
 
         if customer.role != "customer":
             raise serializers.ValidationError(
@@ -606,9 +660,21 @@ class HireCreateSerializer(serializers.ModelSerializer):
         booking_slots_data = validated_data.pop("booking_slots")
         customer = self.context["request"].user
 
+        package = validated_data.get("package")
+
         hire = Hire.objects.create(
             customer=customer,
             status=HireStatus.PENDING,
+            package_title_snapshot=(
+                package.package_title
+                if package
+                else None
+            ),
+            package_price_snapshot=(
+                package.package_price
+                if package
+                else None
+            ),
             **validated_data,
         )
 

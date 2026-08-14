@@ -8,7 +8,6 @@ from cloudinary.models import CloudinaryField
 
 from apps.core.models import TimeStampedModel, UIDMixin
 from apps.event_planner.models import EventBrand
-from django.utils.crypto import get_random_string
 
 
 class ServiceType(models.TextChoices):
@@ -86,7 +85,7 @@ class EventService(UIDMixin, TimeStampedModel):
     shift_hour = models.PositiveIntegerField(
         blank=True,
         null=True,
-        help_text="Used for Photography, Videography, Hall booking service.",
+        help_text="Used for Photography and Videography services."
     )
     
     rating_sum = models.PositiveBigIntegerField(
@@ -133,12 +132,10 @@ class EventService(UIDMixin, TimeStampedModel):
             pass
 
         elif self.service_name == ServiceType.SOUND_LIGHTING:
-            if not self.shift_hour:
-                errors["shift_hour"] = "shift_hour is required for Sound Lighting."
+            pass
 
         elif self.service_name == ServiceType.EVENT_HALL:
-            if not self.shift_hour:
-                errors["shift_hour"] = "shift_hour is required for Event Hall."
+            pass
 
         if errors:
             raise ValidationError(errors)

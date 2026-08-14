@@ -15,6 +15,14 @@ class HireStatus(models.TextChoices):
     CANCELLED = "cancelled", "Cancelled"
     COMPLETED = "completed", "Completed"
 
+class EventType(models.TextChoices):
+    HOLUD = "holud", "Holud"
+    MEHEDI = "mehedi", "Mehedi"
+    AKHD_WALIMA = "akhd_walima", "Akhd/Walima"
+    WEDDING_CEREMONY = "wedding_ceremony", "Wedding Ceremony"
+    RECEPTION = "reception", "Reception"
+    ANNIVERSARY = "anniversary", "Anniversary"
+    BIRTHDAY = "birthday", "Birthday"
 
 class Hire(UIDMixin, TimeStampedModel):
     """
@@ -39,6 +47,37 @@ class Hire(UIDMixin, TimeStampedModel):
         EventService,
         on_delete=models.PROTECT,
         related_name="hire_requests",
+    )
+    
+    package = models.ForeignKey(
+        "packages.ServicePackage",
+        on_delete=models.SET_NULL,
+        related_name="hire_requests",
+        blank=True,
+        null=True,
+    )
+
+    event_type = models.CharField(
+        max_length=20,
+        choices=EventType.choices,
+        blank=True,
+        null=True,
+        db_index=True,
+    )
+
+    package_title_snapshot = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        editable=False,
+    )
+
+    package_price_snapshot = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        editable=False,
     )
 
     status = models.CharField(
@@ -130,6 +169,26 @@ class Hire(UIDMixin, TimeStampedModel):
             and self.status == HireStatus.ACCEPTED
             and not hasattr(self, "invoice")
         )
+        
+    @property
+    def booking_title(self):
+        if self.package_title_snapshot:
+            return self.package_title_snapshot
+
+        return self.service.get_service_name_display()
+
+
+    @property
+    def booking_price(self):
+        if self.package_price_snapshot is not None:
+            return self.package_price_snapshot
+
+        return self.service.shift_charge
+
+
+    @property
+    def is_package_hire(self):
+        return self.package_price_snapshot is not None
 
     def clean(self):
         errors = {}
@@ -139,9 +198,6 @@ class Hire(UIDMixin, TimeStampedModel):
                 errors["customer"] = "Only a customer can create a hire request."
 
         if self.service_id:
-            # FIX: self.service.brand or brand.seller can be missing/unset,
-            # which raises ObjectDoesNotExist deep inside attribute access
-            # instead of surfacing as a clean validation error.
             try:
                 seller = self.service.brand.seller
             except ObjectDoesNotExist:
@@ -159,6 +215,12 @@ class Hire(UIDMixin, TimeStampedModel):
                 if self.customer_id and self.customer_id == seller.id:
                     errors["customer"] = (
                         "A seller cannot hire their own service."
+                    )
+
+            if self.package_id:
+                if self.package.service_id != self.service_id:
+                    errors["package"] = (
+                        "The selected package does not belong to this service."
                     )
 
         if self.status == HireStatus.ACCEPTED and not self.accepted_at:

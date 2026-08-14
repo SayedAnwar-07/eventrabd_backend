@@ -128,7 +128,7 @@ def calculate_service_price_from_slot_shifts(hire, slot_shifts):
     across every booking slot).
     """
 
-    shift_charge = hire.service.shift_charge or ZERO_AMOUNT
+    shift_charge = hire.booking_price or ZERO_AMOUNT
 
     if shift_charge <= ZERO_AMOUNT:
         raise serializers.ValidationError({
@@ -168,14 +168,20 @@ def validate_invoice_financial_data(
     attrs,
     instance=None,
 ):
-    """
-    Validate invoice financial values during create and update.
-    """
-
     if instance is not None:
         service_price = attrs.get(
             "service_price",
             instance.service_price,
+        )
+
+        additional_charge = attrs.get(
+            "additional_charge",
+            instance.additional_charge,
+        )
+
+        additional_charge_reason = attrs.get(
+            "additional_charge_reason",
+            instance.additional_charge_reason,
         )
 
         discount_price = attrs.get(
@@ -201,6 +207,15 @@ def validate_invoice_financial_data(
             ZERO_AMOUNT,
         )
 
+        additional_charge = attrs.get(
+            "additional_charge",
+            ZERO_AMOUNT,
+        )
+
+        additional_charge_reason = attrs.get(
+            "additional_charge_reason",
+        )
+
         discount_price = attrs.get(
             "discount_price",
             ZERO_AMOUNT,
@@ -217,6 +232,11 @@ def validate_invoice_financial_data(
             "due_payment_last_date"
         )
 
+    service_price = service_price or ZERO_AMOUNT
+    additional_charge = additional_charge or ZERO_AMOUNT
+    discount_price = discount_price or ZERO_AMOUNT
+    advance_payment = advance_payment or ZERO_AMOUNT
+
     errors = {}
 
     if service_price <= ZERO_AMOUNT:
@@ -224,19 +244,39 @@ def validate_invoice_financial_data(
             "Service price must be greater than zero."
         )
 
+    if additional_charge < ZERO_AMOUNT:
+        errors["additional_charge"] = (
+            "Additional charge cannot be negative."
+        )
+
+    if (
+        additional_charge > ZERO_AMOUNT
+        and not (
+            additional_charge_reason
+            and additional_charge_reason.strip()
+        )
+    ):
+        errors["additional_charge_reason"] = (
+            "Please provide a reason for the additional charge."
+        )
+
     if discount_price < ZERO_AMOUNT:
         errors["discount_price"] = (
             "Discount price cannot be negative."
         )
 
-    if discount_price > service_price:
+    amount_before_discount = (
+        service_price + additional_charge
+    )
+
+    if discount_price > amount_before_discount:
         errors["discount_price"] = (
-            "Discount cannot be greater than "
-            "the service price."
+            "Discount cannot be greater than the total amount "
+            "before discount."
         )
 
     calculated_total = (
-        service_price - discount_price
+        amount_before_discount - discount_price
     )
 
     if advance_payment < ZERO_AMOUNT:
@@ -373,6 +413,8 @@ class InvoiceDetailSerializer(
             "shift_count",
             "due_payment_last_date",
             "service_price",
+            "additional_charge",
+            "additional_charge_reason",
             "discount_price",
             "advance_payment",
             "sub_total",
@@ -446,7 +488,7 @@ class InvoiceDetailSerializer(
         service = obj.hire.service
 
         shift_hour = service.shift_hour or 0
-        shift_charge = service.shift_charge or ZERO_AMOUNT
+        shift_charge = obj.hire.booking_price or ZERO_AMOUNT
 
         slot_shifts = (
             obj.slot_shifts
@@ -664,12 +706,13 @@ class InvoiceCreateSerializer(
             "slot_shifts",
             "due_payment_last_date",
             "service_price",
+            "additional_charge",
+            "additional_charge_reason",
             "discount_price",
             "advance_payment",
             "seller_note",
             "terms_conditions",
         ]
-
     # Initialization
 
     def __init__(
@@ -1248,6 +1291,8 @@ class InvoiceUpdateSerializer(
             "slot_shifts",
             "service_price",
             "discount_price",
+            "additional_charge",
+            "additional_charge_reason",
             "advance_payment",
             "seller_note",
             "terms_conditions",

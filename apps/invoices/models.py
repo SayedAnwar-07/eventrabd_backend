@@ -101,11 +101,17 @@ class Invoice(UIDMixin, TimeStampedModel):
         db_index=True,
     )
     
-    # shift_count = models.PositiveIntegerField(
-    #     default=1,
-    #     validators=[MinValueValidator(1)],
-    #     help_text="Number of service shifts included in this invoice.",
-    # )
+    additional_charge = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=ZERO_AMOUNT,
+    )
+
+    additional_charge_reason = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+    )
 
     due_payment_last_date = models.DateField(
         db_index=True,
@@ -211,6 +217,10 @@ class Invoice(UIDMixin, TimeStampedModel):
                 check=Q(advance_payment__gte=ZERO_AMOUNT),
                 name="invoice_advance_non_negative",
             ),
+            models.CheckConstraint(
+                check=Q(additional_charge__gte=ZERO_AMOUNT),
+                name="invoice_additional_charge_non_negative",
+            ),
         ]
 
     def __str__(self):
@@ -270,8 +280,10 @@ class Invoice(UIDMixin, TimeStampedModel):
 
     @property
     def total(self):
-        return self.sub_total - (
-            self.discount_price or ZERO_AMOUNT
+        return (
+            self.sub_total
+            + (self.additional_charge or ZERO_AMOUNT)
+            - (self.discount_price or ZERO_AMOUNT)
         )
 
     @property
@@ -321,6 +333,7 @@ class Invoice(UIDMixin, TimeStampedModel):
         errors = {}
 
         service_price = self.service_price or ZERO_AMOUNT
+        additional_charge = self.additional_charge or ZERO_AMOUNT
         discount_price = self.discount_price or ZERO_AMOUNT
         advance_payment = self.advance_payment or ZERO_AMOUNT
 
@@ -335,12 +348,45 @@ class Invoice(UIDMixin, TimeStampedModel):
                 "Service price must be greater than zero."
             )
 
-        if discount_price > service_price:
-            errors["discount_price"] = (
-                "Discount cannot be greater than the service price."
+        if additional_charge < ZERO_AMOUNT:
+            errors["additional_charge"] = (
+                "Additional charge cannot be negative."
             )
 
-        calculated_total = service_price - discount_price
+        if (
+            additional_charge > ZERO_AMOUNT
+            and not (
+                self.additional_charge_reason
+                and self.additional_charge_reason.strip()
+            )
+        ):
+            errors["additional_charge_reason"] = (
+                "Please provide a reason for the additional charge."
+            )
+
+        amount_before_discount = (
+            service_price + additional_charge
+        )
+
+        if discount_price < ZERO_AMOUNT:
+            errors["discount_price"] = (
+                "Discount price cannot be negative."
+            )
+
+        if discount_price > amount_before_discount:
+            errors["discount_price"] = (
+                "Discount cannot be greater than the total amount "
+                "before discount."
+            )
+
+        calculated_total = (
+            amount_before_discount - discount_price
+        )
+
+        if advance_payment < ZERO_AMOUNT:
+            errors["advance_payment"] = (
+                "Advance payment cannot be negative."
+            )
 
         if advance_payment > calculated_total:
             errors["advance_payment"] = (
@@ -392,9 +438,7 @@ class Invoice(UIDMixin, TimeStampedModel):
 
         self.brand_name_snapshot = brand.brand_name
         self.display_name_snapshot = brand.display_name or "" 
-        self.service_name_snapshot = (
-            service.get_service_name_display()
-        )
+        self.service_name_snapshot = self.hire.booking_title
 
     def save(self, *args, **kwargs):
         if not self.invoice_number:
