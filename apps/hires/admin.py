@@ -9,11 +9,11 @@ class HireBookingSlotInline(admin.TabularInline):
     show_change_link = True
 
     fields = [
+        "event_type",
         "starts_at",
-        "whatsapp_number",
         "venue_name",
         "venue_address",
-        "location_note",
+        "google_map_link",
     ]
 
 
@@ -24,6 +24,7 @@ class HireAdmin(admin.ModelAdmin):
         "customer",
         "seller_name",
         "service",
+        "event_type",
         "status",
         "accepted_status",
         "created_at",
@@ -31,6 +32,7 @@ class HireAdmin(admin.ModelAdmin):
 
     list_filter = [
         "status",
+        "event_type",
         "service__service_name",
         "created_at",
     ]
@@ -76,6 +78,8 @@ class HireAdmin(admin.ModelAdmin):
                     "id",
                     "customer",
                     "service",
+                    "package",
+                    "event_type",
                     "seller_name",
                     "status",
                 )
@@ -130,13 +134,14 @@ class HireBookingSlotAdmin(admin.ModelAdmin):
     list_display = [
         "id",
         "hire",
+        "event_type",
         "starts_at",
-        "whatsapp_number",
         "venue_name",
         "created_at",
     ]
 
     list_filter = [
+        "event_type",
         "starts_at",
         "created_at",
     ]
@@ -163,5 +168,5 @@ class HireBookingSlotAdmin(admin.ModelAdmin):
         "hire__service__brand",
     ]
 
-    ordering = ["-starts_at"]
+    ordering = ["-created_at"]
     list_per_page = 25

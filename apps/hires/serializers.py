@@ -1,32 +1,40 @@
 import logging
+from decimal import Decimal
+from urllib.parse import urlparse
 
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.mail import send_mail
 from django.db import transaction
+from django.template.loader import render_to_string
 from django.utils import timezone
-from django.core.exceptions import ObjectDoesNotExist
-from decimal import Decimal
+from django.utils.html import strip_tags
 
 from rest_framework import serializers
 
 from apps.event_planner.models import EventBrand
 from apps.event_services.models import EventService
-from apps.hires.models import Hire, HireBookingSlot, HireStatus
-from apps.users.models import User
+from apps.hires.models import (
+    EventType,
+    Hire,
+    HireBookingItem,
+    HireBookingSlot,
+    HireStatus,
+)
 from apps.packages.models import ServicePackage
+from apps.users.models import User
 
-from django.template.loader import render_to_string
-from django.utils.html import strip_tags
-from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
+MAX_BOOKING_SLOTS = 5
+
+
+# =========================================================
+# Email helpers
+# =========================================================
 
 def get_hire_for_email(hire_pk):
-    """
-    Load the Hire with all required related information.
-    """
-
     return (
         Hire.objects
         .select_related(
@@ -37,31 +45,52 @@ def get_hire_for_email(hire_pk):
             "service__brand__seller",
             "cancelled_by",
         )
-        .prefetch_related("booking_slots")
+        .prefetch_related(
+            "booking_slots",
+            "booking_items",
+            "booking_items__package",
+            "booking_items__booking_slots",
+        )
         .get(pk=hire_pk)
     )
 
 
 def get_booking_details(hire):
-    """
-    Prepare booking information for the HTML templates.
-    """
-
     booking_details = []
 
     for index, slot in enumerate(
         hire.booking_slots.all(),
         start=1,
     ):
-        starts_at = timezone.localtime(slot.starts_at)
+        if slot.starts_at:
+            starts_at = timezone.localtime(slot.starts_at)
+
+            date = starts_at.strftime("%d %B %Y")
+            start_time = starts_at.strftime("%I:%M %p")
+        else:
+            date = "Not provided"
+            start_time = "Not provided"
 
         booking_details.append({
             "number": index,
-            "date": starts_at.strftime("%d %B %Y"),
-            "start_time": starts_at.strftime("%I:%M %p"),
-            "venue_name": slot.venue_name or "Not provided",
-            "venue_address": slot.venue_address or "Not provided",
-            "location_note": slot.location_note or "None",
+            "booking_title": (
+                slot.booking_item.booking_title
+                if slot.booking_item_id
+                else hire.booking_title
+            ),
+            "event_type": (
+                slot.get_event_type_display()
+                if slot.event_type
+                else "Not provided"
+            ),
+            "date": date,
+            "start_time": start_time,
+            "venue_name": (
+                slot.venue_name or "Not provided"
+            ),
+            "venue_address": (
+                slot.venue_address or "Not provided"
+            ),
         })
 
     return booking_details
@@ -74,10 +103,6 @@ def send_html_email(
     context,
     recipient_email,
 ):
-    """
-    Render and send an HTML email with a plain-text fallback.
-    """
-
     html_message = render_to_string(
         template_name,
         context,
@@ -96,10 +121,6 @@ def send_html_email(
 
 
 def send_hire_notification_email(hire_pk):
-    """
-    Send a new hire request email to the seller.
-    """
-
     try:
         hire = get_hire_for_email(hire_pk)
 
@@ -108,10 +129,6 @@ def send_hire_notification_email(hire_pk):
         service = hire.service
 
         if not seller.email:
-            logger.warning(
-                "Seller has no email address for hire %s",
-                hire_pk,
-            )
             return
 
         subject = (
@@ -127,9 +144,10 @@ def send_hire_notification_email(hire_pk):
             "brand": service.brand,
             "service": service,
             "service_name": hire.booking_title,
-            "shift_charge": hire.booking_price,
+            "shift_charge": hire.total_booking_price,
             "customer_note": (
-                hire.customer_note or "No note provided"
+                hire.customer_note
+                or "No note provided"
             ),
             "booking_details": get_booking_details(hire),
             "dashboard_url": getattr(
@@ -154,10 +172,6 @@ def send_hire_notification_email(hire_pk):
 
 
 def send_hire_acceptance_email(hire_pk):
-    """
-    Notify the customer after the seller accepts the hire.
-    """
-
     try:
         hire = get_hire_for_email(hire_pk)
 
@@ -166,10 +180,6 @@ def send_hire_acceptance_email(hire_pk):
         service = hire.service
 
         if not customer.email:
-            logger.warning(
-                "Customer has no email address for accepted hire %s",
-                hire_pk,
-            )
             return
 
         subject = (
@@ -185,7 +195,7 @@ def send_hire_acceptance_email(hire_pk):
             "seller": seller,
             "brand": service.brand,
             "service": service,
-            "service_name": service.get_service_name_display(),
+            "service_name": hire.booking_title,
             "seller_note": (
                 hire.seller_note
                 or "No additional information was provided."
@@ -213,10 +223,6 @@ def send_hire_acceptance_email(hire_pk):
 
 
 def send_hire_rejection_email(hire_pk):
-    """
-    Notify the customer after the seller rejects the hire.
-    """
-
     try:
         hire = get_hire_for_email(hire_pk)
 
@@ -225,10 +231,6 @@ def send_hire_rejection_email(hire_pk):
         service = hire.service
 
         if not customer.email:
-            logger.warning(
-                "Customer has no email address for rejected hire %s",
-                hire_pk,
-            )
             return
 
         subject = (
@@ -244,7 +246,7 @@ def send_hire_rejection_email(hire_pk):
             "seller": seller,
             "brand": service.brand,
             "service": service,
-            "service_name": service.get_service_name_display(),
+            "service_name": hire.booking_title,
             "seller_note": (
                 hire.seller_note
                 or "No additional information was provided."
@@ -269,16 +271,24 @@ def send_hire_rejection_email(hire_pk):
             "Failed to send rejection email for hire %s",
             hire_pk,
         )
- 
-        
-class HirePackageSummarySerializer(serializers.ModelSerializer):
+
+
+# =========================================================
+# Summary serializers
+# =========================================================
+
+class HirePackageSummarySerializer(
+    serializers.ModelSerializer
+):
     class Meta:
         model = ServicePackage
+
         fields = [
             "id",
             "package_title",
             "package_price",
         ]
+
         read_only_fields = fields
 
 
@@ -322,6 +332,7 @@ class UserSummarySerializer(serializers.ModelSerializer):
 class BrandSummarySerializer(serializers.ModelSerializer):
     class Meta:
         model = EventBrand
+
         fields = [
             "id",
             "display_name",
@@ -331,10 +342,13 @@ class BrandSummarySerializer(serializers.ModelSerializer):
             "district",
             "division",
         ]
+
         read_only_fields = fields
 
 
-class EventServiceSummarySerializer(serializers.ModelSerializer):
+class EventServiceSummarySerializer(
+    serializers.ModelSerializer
+):
     service_display_name = serializers.CharField(
         source="get_service_name_display",
         read_only=True,
@@ -342,6 +356,7 @@ class EventServiceSummarySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = EventService
+
         fields = [
             "id",
             "service_name",
@@ -349,38 +364,62 @@ class EventServiceSummarySerializer(serializers.ModelSerializer):
             "shift_charge",
             "shift_hour",
         ]
+
         read_only_fields = fields
 
 
-class HireBookingSlotSerializer(serializers.ModelSerializer):
-    customer_whatsapp_number = serializers.CharField(
-        source="whatsapp_number",
+# =========================================================
+# Booking slot
+# =========================================================
+
+class HireBookingSlotSerializer(
+    serializers.ModelSerializer
+):
+    event_type = serializers.CharField(
+        read_only=True,
+    )
+
+    starts_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+    )
+
+    venue_name = serializers.CharField(
         required=False,
         allow_blank=True,
         allow_null=True,
-        max_length=20,
+        max_length=255,
     )
+
+    venue_address = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+
     google_map_link = serializers.URLField(
         required=False,
         allow_blank=True,
         allow_null=True,
         max_length=500,
     )
+
     class Meta:
         model = HireBookingSlot
+
         fields = [
             "id",
+            "event_type",
             "starts_at",
-            "customer_whatsapp_number",
             "venue_name",
             "venue_address",
-            "location_note",
             "google_map_link",
             "created_at",
         ]
 
         read_only_fields = [
             "id",
+            "event_type",
             "created_at",
         ]
 
@@ -390,7 +429,9 @@ class HireBookingSlotSerializer(serializers.ModelSerializer):
 
         if starts_at and starts_at < timezone.now():
             raise serializers.ValidationError({
-                "starts_at": "Booking date and time cannot be in the past."
+                "starts_at": (
+                    "Booking date and time cannot be in the past."
+                )
             })
 
         if google_map_link:
@@ -419,21 +460,80 @@ class HireBookingSlotSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class HireDetailSerializer(serializers.ModelSerializer):
-    customer = UserSummarySerializer(read_only=True)
-    invoice = serializers.SerializerMethodField()
-    service_summary = serializers.SerializerMethodField()
-    package = HirePackageSummarySerializer(read_only=True,)
+# =========================================================
+# Booking item detail
+# =========================================================
 
-    booking_title = serializers.CharField(read_only=True,)
+class HireBookingItemDetailSerializer(
+    serializers.ModelSerializer
+):
+    package = HirePackageSummarySerializer(
+        read_only=True,
+    )
 
-    booking_price = serializers.DecimalField(
+    booking_title = serializers.CharField(
+        read_only=True,
+    )
+
+    unit_price = serializers.DecimalField(
         max_digits=10,
         decimal_places=2,
         read_only=True,
     )
 
-    is_package_hire = serializers.BooleanField(read_only=True,)
+    total_price = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        read_only=True,
+    )
+
+    is_package = serializers.BooleanField(
+        read_only=True,
+    )
+
+    booking_slots = HireBookingSlotSerializer(
+        many=True,
+        read_only=True,
+    )
+
+    event_types = serializers.SerializerMethodField()
+
+    class Meta:
+        model = HireBookingItem
+
+        fields = [
+            "id",
+            "package",
+            "quantity",
+            "booking_title",
+            "unit_price",
+            "total_price",
+            "is_package",
+            "event_types",
+            "booking_slots",
+            "created_at",
+        ]
+
+        read_only_fields = fields
+
+    def get_event_types(self, obj):
+        return [
+            slot.event_type
+            for slot in obj.booking_slots.all()
+            if slot.event_type
+        ]
+
+
+# =========================================================
+# Hire detail
+# =========================================================
+
+class HireDetailSerializer(
+    serializers.ModelSerializer
+):
+    customer = UserSummarySerializer(
+        read_only=True,
+    )
 
     seller = UserSummarySerializer(
         source="service.brand.seller",
@@ -445,76 +545,175 @@ class HireDetailSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
-    service = EventServiceSummarySerializer(read_only=True)
+    service = EventServiceSummarySerializer(
+        read_only=True,
+    )
+
+    # Legacy field, useful for old hires.
+    package = HirePackageSummarySerializer(
+        read_only=True,
+    )
+
+    booking_items = HireBookingItemDetailSerializer(
+        many=True,
+        read_only=True,
+    )
 
     booking_slots = HireBookingSlotSerializer(
         many=True,
         read_only=True,
     )
 
-    is_accept = serializers.BooleanField(read_only=True)
-    can_create_invoice = serializers.BooleanField(read_only=True)
+    booking_title = serializers.CharField(
+        read_only=True,
+    )
+
+    booking_price = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        read_only=True,
+    )
+
+    total_booking_price = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        read_only=True,
+    )
+
+    is_package_hire = serializers.BooleanField(
+        read_only=True,
+    )
+
+    is_accept = serializers.BooleanField(
+        read_only=True,
+    )
+
+    can_create_invoice = serializers.BooleanField(
+        read_only=True,
+    )
+
+    invoice = serializers.SerializerMethodField()
+
+    service_summary = serializers.SerializerMethodField()
 
     class Meta:
         model = Hire
+
         fields = [
             "id",
             "customer",
             "seller",
             "brand",
             "service",
+
+            # Old compatibility fields
             "package",
+            "quantity",
             "event_type",
+
+            # New multiple booking system
+            "booking_items",
+
             "booking_title",
             "booking_price",
+            "total_booking_price",
             "is_package_hire",
             "service_summary",
+
             "status",
             "is_accept",
             "can_create_invoice",
             "invoice",
+
+            "customer_whatsapp_number",
             "customer_note",
             "seller_note",
+
             "accepted_at",
             "rejected_at",
             "cancelled_at",
             "completed_at",
+
             "booking_slots",
+
             "created_at",
             "updated_at",
         ]
 
-        read_only_fields = [
-            "id",
-            "status",
-            "customer_note",
-            "seller_note",
-            "accepted_at",
-            "rejected_at",
-            "cancelled_at",
-            "completed_at",
-            "created_at",
-            "updated_at",
-        ]
-        
+        read_only_fields = fields
+
     def get_service_summary(self, obj):
-        slot_count = len(obj.booking_slots.all())
+        items = list(obj.booking_items.all())
 
-        shift_charge = obj.booking_price or Decimal("0.00")
         shift_hour = obj.service.shift_hour or 0
 
-        total_amount = shift_charge * slot_count
-        total_shift_hours = shift_hour * slot_count
+        # New booking-item system.
+        if items:
+            total_quantity = sum(
+                item.quantity
+                for item in items
+            )
+
+            total_amount = sum(
+                (
+                    item.total_price
+                    for item in items
+                ),
+                Decimal("0.00"),
+            )
+
+            unit_price = (
+                items[0].unit_price
+                if len(items) == 1
+                else None
+            )
+
+            return {
+                "title": obj.booking_title,
+                "booking_option_count": len(items),
+                "quantity": total_quantity,
+                "slot_count": len(
+                    obj.booking_slots.all()
+                ),
+                "shift_hour_per_slot": shift_hour,
+                "total_shift_hours": (
+                    shift_hour * total_quantity
+                ),
+                "shift_charge_per_slot": (
+                    f"{unit_price:.2f}"
+                    if unit_price is not None
+                    else None
+                ),
+                "total_amount": (
+                    f"{total_amount:.2f}"
+                ),
+            }
+
+        # Old hire compatibility.
+        shift_charge = (
+            obj.booking_price
+            or Decimal("0.00")
+        )
 
         return {
             "title": obj.booking_title,
-            "slot_count": slot_count,
+            "booking_option_count": 1,
+            "quantity": obj.quantity,
+            "slot_count": len(
+                obj.booking_slots.all()
+            ),
             "shift_hour_per_slot": shift_hour,
-            "total_shift_hours": total_shift_hours,
-            "shift_charge_per_slot": f"{shift_charge:.2f}",
-            "total_amount": f"{total_amount:.2f}",
+            "total_shift_hours": (
+                shift_hour * obj.quantity
+            ),
+            "shift_charge_per_slot": (
+                f"{shift_charge:.2f}"
+            ),
+            "total_amount": (
+                f"{obj.total_booking_price:.2f}"
+            ),
         }
-        
+
     def get_invoice(self, obj):
         if not hasattr(obj, "invoice"):
             return None
@@ -536,15 +735,13 @@ class HireDetailSerializer(serializers.ModelSerializer):
         }
 
 
-class HireCreateSerializer(serializers.ModelSerializer):
-    service = serializers.SlugRelatedField(
-        slug_field="id",
-        queryset=EventService.objects.select_related(
-            "brand",
-            "brand__seller",
-        ),
-    )
-    
+# =========================================================
+# Booking item create
+# =========================================================
+
+class HireBookingItemCreateSerializer(
+    serializers.Serializer
+):
     package = serializers.SlugRelatedField(
         slug_field="id",
         queryset=ServicePackage.objects.select_related(
@@ -554,7 +751,81 @@ class HireCreateSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
 
+    quantity = serializers.IntegerField(
+        min_value=1,
+        max_value=MAX_BOOKING_SLOTS,
+        default=1,
+    )
+
+    event_types = serializers.ListField(
+        child=serializers.ChoiceField(
+            choices=EventType.choices,
+        ),
+        allow_empty=False,
+    )
+
     booking_slots = HireBookingSlotSerializer(
+        many=True,
+        allow_empty=False,
+    )
+
+    def validate(self, attrs):
+        quantity = attrs.get("quantity", 1)
+
+        event_types = attrs.get(
+            "event_types",
+            [],
+        )
+
+        booking_slots = attrs.get(
+            "booking_slots",
+            [],
+        )
+
+        if len(event_types) != quantity:
+            raise serializers.ValidationError({
+                "event_types": (
+                    f"Quantity is {quantity}, so exactly "
+                    f"{quantity} event type(s) are required."
+                )
+            })
+
+        if len(booking_slots) != quantity:
+            raise serializers.ValidationError({
+                "booking_slots": (
+                    f"Quantity is {quantity}, so exactly "
+                    f"{quantity} booking slot(s) are required."
+                )
+            })
+
+        # Same event cannot repeat inside same item.
+        if len(event_types) != len(set(event_types)):
+            raise serializers.ValidationError({
+                "event_types": (
+                    "The same event type cannot be selected "
+                    "more than once for the same booking option."
+                )
+            })
+
+        return attrs
+
+
+# =========================================================
+# Hire create
+# =========================================================
+
+class HireCreateSerializer(
+    serializers.ModelSerializer
+):
+    service = serializers.SlugRelatedField(
+        slug_field="id",
+        queryset=EventService.objects.select_related(
+            "brand",
+            "brand__seller",
+        ),
+    )
+
+    booking_items = HireBookingItemCreateSerializer(
         many=True,
         allow_empty=False,
         write_only=True,
@@ -562,13 +833,13 @@ class HireCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Hire
+
         fields = [
             "id",
             "service",
-            "package",
-            "event_type",
+            "booking_items",
             "customer_note",
-            "booking_slots",
+            "customer_whatsapp_number",
             "status",
             "created_at",
         ]
@@ -582,24 +853,22 @@ class HireCreateSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         request = self.context.get("request")
 
-        if not request or not request.user.is_authenticated:
+        if (
+            not request
+            or not request.user.is_authenticated
+        ):
             raise serializers.ValidationError(
                 "Authentication is required."
             )
 
         customer = request.user
+
         service = attrs.get("service")
-        booking_slots = attrs.get("booking_slots", [])
-        package = attrs.get("package")
-        
-        if package:
-            if package.service_id != service.id:
-                raise serializers.ValidationError({
-                    "package": (
-                        "The selected package does not belong "
-                        "to the selected service."
-                    )
-                })
+
+        booking_items = attrs.get(
+            "booking_items",
+            [],
+        )
 
         if customer.role != "customer":
             raise serializers.ValidationError(
@@ -611,93 +880,316 @@ class HireCreateSerializer(serializers.ModelSerializer):
                 "Your account is inactive."
             )
 
-        # FIX: brand or seller may not exist for a malformed/incomplete
-        # service record; accessing them directly raised an unhandled
-        # ObjectDoesNotExist (500) instead of a clean validation error.
         try:
             seller = service.brand.seller
         except ObjectDoesNotExist:
             raise serializers.ValidationError(
-                "This service does not belong to a valid seller."
+                "This service does not belong "
+                "to a valid seller."
             )
 
-
-        if not service.brand.seller.is_active:
+        if not seller.is_active:
             raise serializers.ValidationError(
                 "This seller account is currently inactive."
             )
 
-        if customer.pk == service.brand.seller_id:
+        if customer.pk == seller.pk:
             raise serializers.ValidationError(
                 "You cannot hire your own service."
             )
 
-        if not booking_slots:
+        if not booking_items:
             raise serializers.ValidationError({
-                "booking_slots": "At least one booking slot is required."
+                "booking_items": (
+                    "At least one booking option is required."
+                )
             })
 
-        unique_slots = set()
+        # Total events across all packages/service.
+        total_quantity = sum(
+            item.get("quantity", 1)
+            for item in booking_items
+        )
 
-        for slot in booking_slots:
-            slot_key = (
-                slot["starts_at"],
+        if total_quantity > MAX_BOOKING_SLOTS:
+            raise serializers.ValidationError({
+                "booking_items": (
+                    f"You can create a maximum of "
+                    f"{MAX_BOOKING_SLOTS} bookings."
+                )
+            })
+
+        # /*
+        # Rule:
+        # One option => quantity may increase.
+        # Multiple different options => every quantity must be 1.
+        # */
+        if len(booking_items) > 1:
+            for index, item in enumerate(
+                booking_items
+            ):
+                if item.get("quantity", 1) != 1:
+                    raise serializers.ValidationError({
+                        "booking_items": {
+                            str(index): {
+                                "quantity": (
+                                    "Quantity must be 1 when "
+                                    "multiple booking options "
+                                    "are selected."
+                                )
+                            }
+                        }
+                    })
+
+        seen_packages = set()
+        normal_service_count = 0
+
+        all_starts_at = set()
+
+        for index, item in enumerate(
+            booking_items
+        ):
+            package = item.get("package")
+
+            if package:
+                if package.service_id != service.id:
+                    raise serializers.ValidationError({
+                        "booking_items": {
+                            str(index): {
+                                "package": (
+                                    "This package does not "
+                                    "belong to the selected service."
+                                )
+                            }
+                        }
+                    })
+
+                package_id = str(package.id)
+
+                if package_id in seen_packages:
+                    raise serializers.ValidationError({
+                        "booking_items": {
+                            str(index): {
+                                "package": (
+                                    "The same package cannot "
+                                    "be added twice. Increase "
+                                    "its quantity instead."
+                                )
+                            }
+                        }
+                    })
+
+                seen_packages.add(package_id)
+
+            else:
+                normal_service_count += 1
+
+                if normal_service_count > 1:
+                    raise serializers.ValidationError({
+                        "booking_items": {
+                            str(index): {
+                                "package": (
+                                    "Normal service can only "
+                                    "be added once."
+                                )
+                            }
+                        }
+                    })
+
+            booking_slots = item.get(
+                "booking_slots",
+                [],
             )
 
-            if slot_key in unique_slots:
-                raise serializers.ValidationError({
-                    "booking_slots": (
-                        "The same booking date and time was submitted more than once."
-                    )
-                })
+            for slot_index, slot in enumerate(
+                booking_slots
+            ):
+                starts_at = slot.get(
+                    "starts_at"
+                )
 
-            unique_slots.add(slot_key)
+                if not starts_at:
+                    continue
+
+                if starts_at in all_starts_at:
+                    raise serializers.ValidationError({
+                        "booking_items": {
+                            str(index): {
+                                "booking_slots": {
+                                    str(slot_index): {
+                                        "starts_at": (
+                                            "This booking date "
+                                            "and time is duplicated."
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    })
+
+                all_starts_at.add(starts_at)
+
+        # Only first slot of whole Hire is required.
+        first_item = booking_items[0]
+
+        first_slot = first_item[
+            "booking_slots"
+        ][0]
+
+        first_slot_errors = {}
+
+        if not first_slot.get("starts_at"):
+            first_slot_errors["starts_at"] = (
+                "Start date and time is required "
+                "for the first booking."
+            )
+
+        if not first_slot.get("venue_name"):
+            first_slot_errors["venue_name"] = (
+                "Venue name is required "
+                "for the first booking."
+            )
+
+        if not first_slot.get("venue_address"):
+            first_slot_errors["venue_address"] = (
+                "Venue address is required "
+                "for the first booking."
+            )
+
+        if first_slot_errors:
+            raise serializers.ValidationError({
+                "booking_items": {
+                    "0": {
+                        "booking_slots": {
+                            "0": first_slot_errors,
+                        }
+                    }
+                }
+            })
 
         return attrs
 
     @transaction.atomic
     def create(self, validated_data):
-        booking_slots_data = validated_data.pop("booking_slots")
+        booking_items_data = validated_data.pop(
+            "booking_items"
+        )
+
         customer = self.context["request"].user
 
-        package = validated_data.get("package")
+        first_item_data = booking_items_data[0]
+
+        first_event_type = (
+            first_item_data["event_types"][0]
+        )
+
+        # /*
+        #  * Keep old fields compatible.
+        #  *
+        #  * One option:
+        #  * old package/quantity fields are populated.
+        #  *
+        #  * Multiple options:
+        #  * booking_items becomes source of truth.
+        #  */
+        if len(booking_items_data) == 1:
+            legacy_package = (
+                first_item_data.get("package")
+            )
+
+            legacy_quantity = (
+                first_item_data.get(
+                    "quantity",
+                    1,
+                )
+            )
+
+            package_title_snapshot = (
+                legacy_package.package_title
+                if legacy_package
+                else None
+            )
+
+            package_price_snapshot = (
+                legacy_package.package_price
+                if legacy_package
+                else None
+            )
+
+        else:
+            legacy_package = None
+            legacy_quantity = 1
+            package_title_snapshot = None
+            package_price_snapshot = None
 
         hire = Hire.objects.create(
             customer=customer,
             status=HireStatus.PENDING,
+            event_type=first_event_type,
+            package=legacy_package,
+            quantity=legacy_quantity,
             package_title_snapshot=(
-                package.package_title
-                if package
-                else None
+                package_title_snapshot
             ),
             package_price_snapshot=(
-                package.package_price
-                if package
-                else None
+                package_price_snapshot
             ),
             **validated_data,
         )
 
-        for slot_data in booking_slots_data:
-            HireBookingSlot.objects.create(
-                hire=hire,
-                **slot_data,
+        for item_data in booking_items_data:
+            package = item_data.get("package")
+
+            quantity = item_data.get(
+                "quantity",
+                1,
             )
 
+            event_types = item_data[
+                "event_types"
+            ]
+
+            booking_slots_data = item_data[
+                "booking_slots"
+            ]
+
+            booking_item = (
+                HireBookingItem.objects.create(
+                    hire=hire,
+                    package=package,
+                    quantity=quantity,
+                )
+            )
+
+            for event_type, slot_data in zip(
+                event_types,
+                booking_slots_data,
+            ):
+                HireBookingSlot.objects.create(
+                    hire=hire,
+                    booking_item=booking_item,
+                    event_type=event_type,
+                    **slot_data,
+                )
+
         transaction.on_commit(
-            lambda hire_pk=hire.pk: send_hire_notification_email(hire_pk)
+            lambda hire_pk=hire.pk: (
+                send_hire_notification_email(
+                    hire_pk
+                )
+            )
         )
 
         return hire
 
-    def to_representation(self, instance):
-        return HireDetailSerializer(
-            instance,
-            context=self.context,
-        ).data
 
+# =========================================================
+# Seller accept / reject
+# =========================================================
 
-class HireSellerDecisionSerializer(serializers.Serializer):
+class HireSellerDecisionSerializer(
+    serializers.Serializer
+):
     decision = serializers.ChoiceField(
         choices=[
             ("accept", "Accept"),
@@ -714,9 +1206,13 @@ class HireSellerDecisionSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         request = self.context.get("request")
+
         hire = self.instance
 
-        if not request or not request.user.is_authenticated:
+        if (
+            not request
+            or not request.user.is_authenticated
+        ):
             raise serializers.ValidationError(
                 "Authentication is required."
             )
@@ -725,35 +1221,53 @@ class HireSellerDecisionSerializer(serializers.Serializer):
 
         if seller.role != "seller":
             raise serializers.ValidationError(
-                "Only sellers can accept or reject hire requests."
+                "Only sellers can accept or reject "
+                "hire requests."
             )
 
         try:
-            owner_id = hire.service.brand.seller_id
+            owner_id = (
+                hire.service.brand.seller_id
+            )
         except ObjectDoesNotExist:
             raise serializers.ValidationError(
-                "This hire's service does not belong to a valid seller."
+                "This hire's service does not "
+                "belong to a valid seller."
             )
 
-        if seller.pk != hire.service.brand.seller_id:
+        if seller.pk != owner_id:
             raise serializers.ValidationError(
-                "You cannot manage another seller's hire request."
+                "You cannot manage another seller's "
+                "hire request."
             )
 
         if hire.status != HireStatus.PENDING:
             raise serializers.ValidationError({
                 "decision": (
-                    f"This hire request is already {hire.status}."
+                    f"This hire request is already "
+                    f"{hire.status}."
                 )
             })
 
         return attrs
 
     @transaction.atomic
-    def update(self, instance, validated_data):
-        seller = self.context["request"].user
-        decision = validated_data["decision"]
-        seller_note = validated_data.get("seller_note")
+    def update(
+        self,
+        instance,
+        validated_data,
+    ):
+        seller = self.context[
+            "request"
+        ].user
+
+        decision = validated_data[
+            "decision"
+        ]
+
+        seller_note = validated_data.get(
+            "seller_note"
+        )
 
         if decision == "accept":
             instance.accept(
@@ -763,7 +1277,9 @@ class HireSellerDecisionSerializer(serializers.Serializer):
 
             transaction.on_commit(
                 lambda hire_pk=instance.pk: (
-                    send_hire_acceptance_email(hire_pk)
+                    send_hire_acceptance_email(
+                        hire_pk
+                    )
                 )
             )
 
@@ -775,7 +1291,9 @@ class HireSellerDecisionSerializer(serializers.Serializer):
 
             transaction.on_commit(
                 lambda hire_pk=instance.pk: (
-                    send_hire_rejection_email(hire_pk)
+                    send_hire_rejection_email(
+                        hire_pk
+                    )
                 )
             )
 

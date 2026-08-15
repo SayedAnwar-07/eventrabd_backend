@@ -456,7 +456,7 @@
                         text-align: left;
                       "
                     >
-                      Booking {{ slot.number }}
+                      Booking {{ slot.number }} — {{ slot.event_type }}
                     </td>
                   </tr>
 
@@ -512,7 +512,7 @@
                         text-align: left;
                       "
                     >
-                      {{ slot.start_time }} – {{ slot.end_time }}
+                      {{ slot.start_time }}
                     </td>
                   </tr>
 
@@ -587,18 +587,6 @@
                       "
                     >
                       Location note
-                    </td>
-
-                    <td
-                      style="
-                        padding: 5px 14px 10px;
-                        font-size: 13px;
-                        line-height: 20px;
-                        color: #111827;
-                        text-align: left;
-                      "
-                    >
-                      {{ slot.location_note|default:"Not provided" }}
                     </td>
                   </tr>
                 </table>

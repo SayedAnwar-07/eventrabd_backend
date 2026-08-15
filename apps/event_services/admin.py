@@ -54,6 +54,8 @@ class EventServiceAdmin(admin.ModelAdmin):
 
     readonly_fields = (
         "slug",
+        "rating_sum",
+        "review_count",
         "created_at",
         "updated_at",
         "cover_preview",
@@ -70,6 +72,12 @@ class EventServiceAdmin(admin.ModelAdmin):
                 "description",
             )
         }),
+        ("Review and Ratings", {
+            "fields": (
+                "rating_sum",
+                "review_count",
+            )
+        }),
         ("Media", {
             "fields": (
                 "cover_photo",
@@ -81,8 +89,6 @@ class EventServiceAdmin(admin.ModelAdmin):
             "fields": (
                 "shift_charge",
                 "shift_hour",
-                "sound_system_payment",
-                "lighting_payment",
             )
         }),
         ("Timestamps", {

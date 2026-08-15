@@ -52,17 +52,24 @@ def convert_model_validation_error(error):
 
 def get_hire_slot_count(hire):
     """
-    Ensure the hire has at least one booking slot and return the count.
+    Count only actual booked slots.
+
+    A selected secondary event may exist without a date yet,
+    so slots with starts_at=None are not invoiceable.
     """
 
-    slot_count = hire.booking_slots.count()
+    slot_count = (
+        hire.booking_slots
+        .filter(starts_at__isnull=False)
+        .count()
+    )
 
     if slot_count < 1:
         raise serializers.ValidationError({
             "hire": (
-                "This hire has no booking slots. "
-                "At least one booking slot is required "
-                "before creating an invoice."
+                "This hire has no completed booking slots. "
+                "At least one booking slot with a start date "
+                "is required before creating an invoice."
             )
         })
 
@@ -71,18 +78,17 @@ def get_hire_slot_count(hire):
 
 def validate_slot_shifts(hire, slot_shifts):
     """
-    Validate a list of {"booking_slot": <HireBookingSlot>, "shift_count": int}
-    submitted for one hire.
+    Validate shift counts only for booking slots that
+    actually have a start date/time.
 
-    Rules:
-        - Every booking_slot must belong to this hire.
-        - A booking slot cannot appear more than once.
-        - Every booked date (slot) on the hire must be assigned
-          a shift count — nothing can be left out.
+    Slots with starts_at=None are selected future events,
+    but they are not invoiceable yet.
     """
 
     hire_slot_ids = set(
-        hire.booking_slots.values_list("id", flat=True)
+        hire.booking_slots
+        .filter(starts_at__isnull=False)
+        .values_list("id", flat=True)
     )
 
     seen_slot_ids = set()
@@ -98,11 +104,19 @@ def validate_slot_shifts(hire, slot_shifts):
                 )
             })
 
+        if booking_slot.starts_at is None:
+            raise serializers.ValidationError({
+                "slot_shifts": (
+                    "A shift count cannot be assigned to an "
+                    "event that does not have a booking date yet."
+                )
+            })
+
         if booking_slot.id in seen_slot_ids:
             raise serializers.ValidationError({
                 "slot_shifts": (
-                    "Each booking slot (date) can only be "
-                    "assigned a shift count once."
+                    "Each booking slot can only be assigned "
+                    "a shift count once."
                 )
             })
 
@@ -476,15 +490,6 @@ class InvoiceDetailSerializer(
         }
 
     def get_service_summary(self, obj):
-        """
-        Now returns a per-date breakdown, since each booking slot
-        (event date) can carry its own seller-chosen shift count.
-
-        Example:
-            10 Aug 2026 -> 3 shifts -> ৳X
-            16 Aug 2026 -> 2 shifts -> ৳Y
-        """
-
         service = obj.hire.service
 
         shift_hour = service.shift_hour or 0
@@ -499,26 +504,52 @@ class InvoiceDetailSerializer(
         breakdown = []
 
         for slot_shift in slot_shifts:
-            starts_at = timezone.localtime(
-                slot_shift.booking_slot.starts_at
+            booking_slot = slot_shift.booking_slot
+
+            if booking_slot.starts_at:
+                starts_at = timezone.localtime(
+                    booking_slot.starts_at
+                )
+
+                date = starts_at.strftime("%d %B %Y")
+            else:
+                date = "Not provided"
+
+            slot_amount = (
+                shift_charge * slot_shift.shift_count
             )
-            slot_amount = shift_charge * slot_shift.shift_count
 
             breakdown.append({
-                "booking_slot_id": str(slot_shift.booking_slot_id),
-                "date": starts_at.strftime("%d %B %Y"),
+                "booking_slot_id": str(
+                    slot_shift.booking_slot_id
+                ),
+                "date": date,
                 "shift_count": slot_shift.shift_count,
-                "shift_hours": shift_hour * slot_shift.shift_count,
+                "shift_hours": (
+                    shift_hour * slot_shift.shift_count
+                ),
                 "amount": f"{slot_amount:.2f}",
             })
 
+        booked_slot_count = (
+            obj.hire.booking_slots
+            .filter(starts_at__isnull=False)
+            .count()
+        )
+
         return {
-            "slot_count": obj.hire.booking_slots.count(),
+            "slot_count": booked_slot_count,
             "shift_count": obj.shift_count,
             "shift_hour_per_slot": shift_hour,
-            "total_shift_hours": shift_hour * obj.shift_count,
-            "shift_charge_per_slot": f"{shift_charge:.2f}",
-            "total_amount": f"{obj.service_price:.2f}",
+            "total_shift_hours": (
+                shift_hour * obj.shift_count
+            ),
+            "shift_charge_per_slot": (
+                f"{shift_charge:.2f}"
+            ),
+            "total_amount": (
+                f"{obj.service_price:.2f}"
+            ),
             "breakdown": breakdown,
         }
 

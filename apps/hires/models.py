@@ -1,6 +1,9 @@
+from decimal import Decimal
+
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.core.validators import MinValueValidator
 from django.db import models, transaction
-from django.db.models import F, Q
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.core.models import TimeStampedModel, UIDMixin
@@ -15,6 +18,7 @@ class HireStatus(models.TextChoices):
     CANCELLED = "cancelled", "Cancelled"
     COMPLETED = "completed", "Completed"
 
+
 class EventType(models.TextChoices):
     HOLUD = "holud", "Holud"
     MEHEDI = "mehedi", "Mehedi"
@@ -24,18 +28,8 @@ class EventType(models.TextChoices):
     ANNIVERSARY = "anniversary", "Anniversary"
     BIRTHDAY = "birthday", "Birthday"
 
+
 class Hire(UIDMixin, TimeStampedModel):
-    """
-    A customer's request to hire one seller service.
-
-    The seller is not stored separately because it is already available through:
-
-        hire.service.brand.seller
-
-    Storing another seller ForeignKey would duplicate data and could create
-    inconsistent records.
-    """
-
     customer = models.ForeignKey(
         User,
         on_delete=models.PROTECT,
@@ -48,7 +42,8 @@ class Hire(UIDMixin, TimeStampedModel):
         on_delete=models.PROTECT,
         related_name="hire_requests",
     )
-    
+
+    # Keep old fields temporarily for existing hires/invoices.
     package = models.ForeignKey(
         "packages.ServicePackage",
         on_delete=models.SET_NULL,
@@ -57,12 +52,23 @@ class Hire(UIDMixin, TimeStampedModel):
         null=True,
     )
 
+    quantity = models.PositiveIntegerField(
+        default=1,
+        validators=[MinValueValidator(1)],
+    )
+
     event_type = models.CharField(
         max_length=20,
         choices=EventType.choices,
         blank=True,
         null=True,
         db_index=True,
+    )
+
+    customer_whatsapp_number = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
     )
 
     package_title_snapshot = models.CharField(
@@ -90,13 +96,11 @@ class Hire(UIDMixin, TimeStampedModel):
     customer_note = models.TextField(
         blank=True,
         null=True,
-        help_text="Additional information provided by the customer.",
     )
 
     seller_note = models.TextField(
         blank=True,
         null=True,
-        help_text="Seller's response or explanation.",
     )
 
     accepted_at = models.DateTimeField(
@@ -151,99 +155,162 @@ class Hire(UIDMixin, TimeStampedModel):
 
     @property
     def is_accept(self):
-        """
-        Compatibility property for frontend usage.
-
-        Do not store this separately in the database.
-        """
         return self.status == HireStatus.ACCEPTED
 
     @property
     def can_create_invoice(self):
-        """
-        Invoice is allowed only for an existing accepted hire
-        that does not already have an invoice.
-        """
         return bool(
             self.pk
             and self.status == HireStatus.ACCEPTED
             and not hasattr(self, "invoice")
         )
-        
+
+    def _legacy_unit_price(self):
+        if self.package_price_snapshot is not None:
+            return self.package_price_snapshot
+
+        return self.service.shift_charge or Decimal("0.00")
+
     @property
     def booking_title(self):
+        if self.pk:
+            items = list(self.booking_items.all())
+
+            if len(items) == 1:
+                return items[0].booking_title
+
+            if len(items) > 1:
+                return (
+                    f"{self.service.get_service_name_display()} "
+                    f"({len(items)} booking options)"
+                )
+
         if self.package_title_snapshot:
             return self.package_title_snapshot
 
         return self.service.get_service_name_display()
 
-
     @property
     def booking_price(self):
-        if self.package_price_snapshot is not None:
-            return self.package_price_snapshot
+        """
+        Backward compatible price.
 
-        return self.service.shift_charge
+        Multiple booking items return their total base amount.
+        """
+        if self.pk:
+            items = list(self.booking_items.all())
 
+            if len(items) == 1:
+                return items[0].unit_price
+
+            if len(items) > 1:
+                return sum(
+                    (item.total_price for item in items),
+                    Decimal("0.00"),
+                )
+
+        return self._legacy_unit_price()
+
+    @property
+    def total_booking_price(self):
+        if self.pk:
+            items = list(self.booking_items.all())
+
+            if items:
+                return sum(
+                    (item.total_price for item in items),
+                    Decimal("0.00"),
+                )
+
+        return self._legacy_unit_price() * self.quantity
 
     @property
     def is_package_hire(self):
-        return self.package_price_snapshot is not None
+        if self.pk and self.booking_items.exists():
+            return self.booking_items.filter(
+                package__isnull=False,
+            ).exists()
+
+        return bool(
+            self.package_id
+            or self.package_price_snapshot is not None
+        )
 
     def clean(self):
         errors = {}
 
-        if self.customer_id:
-            if self.customer.role != "customer":
-                errors["customer"] = "Only a customer can create a hire request."
+        if self.customer_id and self.customer.role != "customer":
+            errors["customer"] = (
+                "Only a customer can create a hire request."
+            )
 
         if self.service_id:
             try:
                 seller = self.service.brand.seller
             except ObjectDoesNotExist:
-                errors["service"] = (
-                    "The selected service does not belong to a valid seller."
-                )
                 seller = None
+                errors["service"] = (
+                    "The selected service does not belong "
+                    "to a valid seller."
+                )
 
             if seller is not None:
                 if seller.role != "seller":
                     errors["service"] = (
-                        "The selected service does not belong to a valid seller."
+                        "The selected service does not belong "
+                        "to a valid seller."
                     )
 
-                if self.customer_id and self.customer_id == seller.id:
+                if (
+                    self.customer_id
+                    and self.customer_id == seller.id
+                ):
                     errors["customer"] = (
                         "A seller cannot hire their own service."
                     )
 
-            if self.package_id:
-                if self.package.service_id != self.service_id:
-                    errors["package"] = (
-                        "The selected package does not belong to this service."
-                    )
+            # Legacy package validation.
+            if (
+                self.package_id
+                and self.package.service_id != self.service_id
+            ):
+                errors["package"] = (
+                    "The selected package does not belong "
+                    "to this service."
+                )
 
-        if self.status == HireStatus.ACCEPTED and not self.accepted_at:
+        if (
+            self.status == HireStatus.ACCEPTED
+            and not self.accepted_at
+        ):
             errors["accepted_at"] = (
                 "accepted_at is required when the hire is accepted."
             )
 
-        if self.status == HireStatus.REJECTED and not self.rejected_at:
+        if (
+            self.status == HireStatus.REJECTED
+            and not self.rejected_at
+        ):
             errors["rejected_at"] = (
                 "rejected_at is required when the hire is rejected."
             )
 
-        if self.status == HireStatus.CANCELLED and not self.cancelled_at:
+        if (
+            self.status == HireStatus.CANCELLED
+            and not self.cancelled_at
+        ):
             errors["cancelled_at"] = (
                 "cancelled_at is required when the hire is cancelled."
             )
 
-        if self.status == HireStatus.COMPLETED and not self.completed_at:
+        if (
+            self.status == HireStatus.COMPLETED
+            and not self.completed_at
+        ):
             errors["completed_at"] = (
                 "completed_at is required when the hire is completed."
             )
 
-        # Customer and service become permanent after hire creation.
         if not self._state.adding:
             previous = (
                 Hire.objects
@@ -258,31 +325,28 @@ class Hire(UIDMixin, TimeStampedModel):
             if previous:
                 if previous["customer_id"] != self.customer_id:
                     errors["customer"] = (
-                        "The customer cannot be changed after "
-                        "the hire request is created."
+                        "The customer cannot be changed "
+                        "after hire creation."
                     )
 
                 if previous["service_id"] != self.service_id:
                     errors["service"] = (
-                        "The service cannot be changed after "
-                        "the hire request is created."
+                        "The service cannot be changed "
+                        "after hire creation."
                     )
 
         if errors:
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
-        """
-        Enforce model validation whenever a hire is saved.
-        """
-
         self.full_clean()
         return super().save(*args, **kwargs)
-    
+
     def accept(self, seller, note=None):
         if seller.pk != self.seller.pk:
             raise ValidationError(
-                "Only the owner of this service can accept the hire request."
+                "Only the owner of this service can accept "
+                "the hire request."
             )
 
         with transaction.atomic():
@@ -294,7 +358,8 @@ class Hire(UIDMixin, TimeStampedModel):
 
             if current.status != HireStatus.PENDING:
                 raise ValidationError(
-                    f"A {current.status} hire request cannot be accepted."
+                    f"A {current.status} hire request "
+                    f"cannot be accepted."
                 )
 
             existing_bookings = (
@@ -311,14 +376,16 @@ class Hire(UIDMixin, TimeStampedModel):
             )
 
             for requested_slot in self.booking_slots.all():
-                conflict_exists = existing_bookings.filter(
-                    starts_at=requested_slot.starts_at,
-                ).exists()
+                if requested_slot.starts_at is None:
+                    continue
 
-                if conflict_exists:
+                if existing_bookings.filter(
+                    starts_at=requested_slot.starts_at,
+                ).exists():
                     raise ValidationError({
                         "booking_slots": (
-                            "This service already has a booking for the requested start time."
+                            "This service already has a booking "
+                            "for the requested start time."
                         )
                     })
 
@@ -334,11 +401,10 @@ class Hire(UIDMixin, TimeStampedModel):
     def reject(self, seller, note=None):
         if seller.pk != self.seller.pk:
             raise ValidationError(
-                "Only the owner of this service can reject the hire request."
+                "Only the owner of this service can reject "
+                "the hire request."
             )
 
-        # FIX: same row-locking gap as accept() — lock and re-check
-        # status before writing.
         with transaction.atomic():
             current = (
                 Hire.objects
@@ -348,7 +414,8 @@ class Hire(UIDMixin, TimeStampedModel):
 
             if current.status != HireStatus.PENDING:
                 raise ValidationError(
-                    f"A {current.status} hire request cannot be rejected."
+                    f"A {current.status} hire request "
+                    f"cannot be rejected."
                 )
 
             self.status = HireStatus.REJECTED
@@ -361,13 +428,6 @@ class Hire(UIDMixin, TimeStampedModel):
             self.save()
 
     def cancel(self, user):
-        """
-        Customer or service owner can cancel a pending or accepted hire.
-
-        An invoiced hire cannot be cancelled until invoice cancellation
-        or voiding is implemented.
-        """
-
         allowed_user_ids = {
             self.customer_id,
             self.seller.id,
@@ -375,7 +435,8 @@ class Hire(UIDMixin, TimeStampedModel):
 
         if user.id not in allowed_user_ids:
             raise ValidationError(
-                "You do not have permission to cancel this hire request."
+                "You do not have permission to cancel "
+                "this hire request."
             )
 
         if self.status not in {
@@ -389,8 +450,8 @@ class Hire(UIDMixin, TimeStampedModel):
         if hasattr(self, "invoice"):
             raise ValidationError({
                 "invoice": (
-                    "This hire already has an invoice and cannot be "
-                    "cancelled directly."
+                    "This hire already has an invoice and "
+                    "cannot be cancelled directly."
                 )
             })
 
@@ -401,9 +462,6 @@ class Hire(UIDMixin, TimeStampedModel):
         self.save()
 
     def mark_completed(self, seller):
-        """
-        Mark an accepted hire as completed.
-        """
         if seller.pk != self.seller.pk:
             raise ValidationError(
                 "Only the service owner can complete this hire."
@@ -420,54 +478,249 @@ class Hire(UIDMixin, TimeStampedModel):
         self.save()
 
 
+class HireBookingItem(UIDMixin, TimeStampedModel):
+    """
+    One selected booking option.
+    package=None means normal service.
+    """
+
+    hire = models.ForeignKey(
+        Hire,
+        on_delete=models.CASCADE,
+        related_name="booking_items",
+    )
+
+    package = models.ForeignKey(
+        "packages.ServicePackage",
+        on_delete=models.SET_NULL,
+        related_name="hire_booking_items",
+        blank=True,
+        null=True,
+    )
+
+    quantity = models.PositiveIntegerField(
+        default=1,
+        validators=[MinValueValidator(1)],
+    )
+
+    package_title_snapshot = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        editable=False,
+    )
+
+    package_price_snapshot = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        editable=False,
+    )
+
+    class Meta:
+        verbose_name = "Hire Booking Item"
+        verbose_name_plural = "Hire Booking Items"
+        ordering = ["created_at"]
+
+        constraints = [
+            # Same package should use quantity instead.
+            models.UniqueConstraint(
+                fields=["hire", "package"],
+                condition=Q(package__isnull=False),
+                name="unique_package_per_hire",
+            ),
+
+            # Only one normal-service item per Hire.
+            models.UniqueConstraint(
+                fields=["hire"],
+                condition=Q(package__isnull=True),
+                name="one_normal_service_item_per_hire",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.booking_title} × {self.quantity}"
+        )
+
+    @property
+    def booking_title(self):
+        if self.package_title_snapshot:
+            return self.package_title_snapshot
+
+        if self.package_id:
+            return self.package.package_title
+
+        return self.hire.service.get_service_name_display()
+
+    @property
+    def unit_price(self):
+        if self.package_price_snapshot is not None:
+            return self.package_price_snapshot
+
+        if self.package_id:
+            return self.package.package_price
+
+        return self.hire.service.shift_charge or Decimal("0.00")
+
+    @property
+    def total_price(self):
+        return self.unit_price * self.quantity
+
+    @property
+    def is_package(self):
+        return bool(
+            self.package_id
+            or self.package_price_snapshot is not None
+        )
+
+    def ensure_mutable(self):
+        if not self.hire_id:
+            return
+
+        if self.hire.status != HireStatus.PENDING:
+            raise ValidationError({
+                "hire": (
+                    "Booking options cannot be changed "
+                    "after the hire leaves pending status."
+                )
+            })
+
+        if hasattr(self.hire, "invoice"):
+            raise ValidationError({
+                "hire": (
+                    "Booking options cannot be changed "
+                    "after invoice creation."
+                )
+            })
+
+    def clean(self):
+        errors = {}
+
+        if (
+            self.package_id
+            and self.hire_id
+            and self.package.service_id != self.hire.service_id
+        ):
+            errors["package"] = (
+                "The selected package does not belong "
+                "to this service."
+            )
+
+        if self.hire_id:
+            siblings = (
+                HireBookingItem.objects
+                .filter(hire_id=self.hire_id)
+                .exclude(pk=self.pk)
+            )
+
+            # Multiple different options => every item quantity must be 1.
+            if siblings.exists():
+                if self.quantity != 1:
+                    errors["quantity"] = (
+                        "Quantity must be 1 when multiple "
+                        "booking options are selected."
+                    )
+
+                if siblings.filter(quantity__gt=1).exists():
+                    errors["quantity"] = (
+                        "Another booking option already has "
+                        "quantity greater than 1."
+                    )
+
+        if not self._state.adding:
+            previous = (
+                HireBookingItem.objects
+                .filter(pk=self.pk)
+                .values(
+                    "hire_id",
+                    "package_id",
+                )
+                .first()
+            )
+
+            if previous:
+                if previous["hire_id"] != self.hire_id:
+                    errors["hire"] = (
+                        "Booking item cannot be moved "
+                        "to another hire."
+                    )
+
+                if previous["package_id"] != self.package_id:
+                    errors["package"] = (
+                        "Package cannot be changed after "
+                        "the booking item is created."
+                    )
+
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.ensure_mutable()
+
+        if self.package_id:
+            self.package_title_snapshot = (
+                self.package.package_title
+            )
+            self.package_price_snapshot = (
+                self.package.package_price
+            )
+
+        self.full_clean()
+
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        self.ensure_mutable()
+        return super().delete(*args, **kwargs)
+
+
 class HireBookingSlot(UIDMixin, TimeStampedModel):
-    """
-    One booked event date/time/place.
-
-    Booking slots may only be created or modified while the related
-    hire request is pending.
-    """
-
     hire = models.ForeignKey(
         Hire,
         on_delete=models.CASCADE,
         related_name="booking_slots",
     )
 
-    starts_at = models.DateTimeField(
-        db_index=True,
-        help_text="Event starting date and time.",
-    )
-    
-    whatsapp_number = models.CharField(
-        max_length=20,
+    # Links this event to Normal Service / exact Package.
+    booking_item = models.ForeignKey(
+        HireBookingItem,
+        on_delete=models.CASCADE,
+        related_name="booking_slots",
         blank=True,
         null=True,
-        help_text="Customer WhatsApp number.",
     )
-    
+
+    event_type = models.CharField(
+        max_length=20,
+        choices=EventType.choices,
+        blank=True,
+        null=True,
+        db_index=True,
+    )
+
+    starts_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        db_index=True,
+    )
+
     venue_name = models.CharField(
         max_length=255,
         blank=True,
         null=True,
-        help_text="Example: Grand Palace Convention Hall.",
     )
 
     venue_address = models.TextField(
-        help_text="Full event location or address.",
-    )
-
-    location_note = models.TextField(
         blank=True,
         null=True,
-        help_text="Optional directions or location instructions.",
     )
-    
+
     google_map_link = models.URLField(
         max_length=500,
         blank=True,
         null=True,
-        help_text="Optional Google Maps shared location link.",
     )
 
     class Meta:
@@ -477,33 +730,38 @@ class HireBookingSlot(UIDMixin, TimeStampedModel):
 
         constraints = [
             models.UniqueConstraint(
-                fields=[
-                    "hire",
-                    "starts_at",
-                ],
+                fields=["hire", "starts_at"],
                 name="unique_time_slot_per_hire",
+            ),
+
+            # Same event type may exist under different packages.
+            models.UniqueConstraint(
+                fields=["booking_item", "event_type"],
+                name="unique_event_type_per_booking_item",
             ),
         ]
 
-        indexes = [
-            models.Index(fields=["hire", "starts_at"]),
-            models.Index(fields=["starts_at"]),
-        ]
-
     def __str__(self):
-        return (
-            f"{self.hire.service.get_service_name_display()} - "
-            f"{self.starts_at}"
+        title = (
+            self.booking_item.booking_title
+            if self.booking_item_id
+            else self.hire.service.get_service_name_display()
         )
 
-    def ensure_mutable(self):
-        """
-        Prevent creating, updating, moving, or deleting a booking slot
-        after the hire leaves pending status.
-        """
+        return f"{title} - {self.starts_at}"
 
+    def ensure_mutable(self):
         if not self.hire_id:
             return
+
+        if self.booking_item_id:
+            if self.booking_item.hire_id != self.hire_id:
+                raise ValidationError({
+                    "booking_item": (
+                        "Booking item does not belong "
+                        "to this hire."
+                    )
+                })
 
         if self._state.adding:
             related_hire = self.hire
@@ -518,8 +776,19 @@ class HireBookingSlot(UIDMixin, TimeStampedModel):
             if original_slot.hire_id != self.hire_id:
                 raise ValidationError({
                     "hire": (
-                        "A booking slot cannot be moved from one "
-                        "hire request to another."
+                        "Booking slot cannot be moved "
+                        "to another hire."
+                    )
+                })
+
+            if (
+                original_slot.booking_item_id
+                != self.booking_item_id
+            ):
+                raise ValidationError({
+                    "booking_item": (
+                        "Booking slot cannot be moved "
+                        "to another booking item."
                     )
                 })
 
@@ -528,35 +797,24 @@ class HireBookingSlot(UIDMixin, TimeStampedModel):
         if related_hire.status != HireStatus.PENDING:
             raise ValidationError({
                 "hire": (
-                    "Booking details cannot be changed after the "
-                    "hire request has been accepted, rejected, "
-                    "cancelled, or completed."
+                    "Booking details cannot be changed "
+                    "after the hire leaves pending status."
                 )
             })
 
         if hasattr(related_hire, "invoice"):
             raise ValidationError({
                 "hire": (
-                    "Booking details cannot be changed after an "
-                    "invoice has been created."
+                    "Booking details cannot be changed "
+                    "after invoice creation."
                 )
             })
 
-
     def save(self, *args, **kwargs):
-        """
-        Django does not automatically call model.clean() during save().
-        Calling full_clean() here enforces validation outside serializers too.
-        """
-
         self.ensure_mutable()
         self.full_clean()
         return super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
-        """
-        Prevent directly deleting one slot from a locked hire.
-        """
-
         self.ensure_mutable()
         return super().delete(*args, **kwargs)
