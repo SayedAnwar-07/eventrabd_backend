@@ -1,5 +1,3 @@
-from decimal import Decimal
-
 from django.core.exceptions import (
     ValidationError as DjangoValidationError,
 )
@@ -8,27 +6,36 @@ from django.utils import timezone
 
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
-from .emails import send_invoice_created_email
 
-from apps.hires.models import Hire, HireStatus, HireBookingSlot
+from apps.hires.models import (
+    Hire,
+    HireBookingSlot,
+    HireStatus,
+)
 from apps.notifications.services import (
     create_invoice_created_notification,
     create_invoice_updated_notification,
 )
 
-from .models import Invoice, InvoiceSlotShift, MAX_TERM_LENGTH, MAX_TERMS_CONDITIONS, ZERO_AMOUNT
-
-
-MINIMUM_SERVICE_PRICE = Decimal("0.01")
+from .emails import send_invoice_created_email
+from .models import (
+    Invoice,
+    InvoiceSlotShift,
+    MAX_TERM_LENGTH,
+    MAX_TERMS_CONDITIONS,
+    ZERO_AMOUNT,
+)
 
 
 # =========================================================
 # Helper functions
 # =========================================================
 
+
 def convert_model_validation_error(error):
     """
-    Convert Django model ValidationError into DRF ValidationError.
+    Convert Django model ValidationError into
+    DRF ValidationError.
     """
 
     if hasattr(error, "message_dict"):
@@ -37,58 +44,67 @@ def convert_model_validation_error(error):
         )
 
     if hasattr(error, "messages"):
-        return serializers.ValidationError(
-            {
-                "detail": error.messages,
-            }
-        )
+        return serializers.ValidationError({
+            "detail": error.messages,
+        })
 
-    return serializers.ValidationError(
-        {
-            "detail": str(error),
-        }
-    )
+    return serializers.ValidationError({
+        "detail": str(error),
+    })
 
 
 def get_hire_slot_count(hire):
     """
-    Count only actual booked slots.
+    Ensure the Hire has booking slots and that every
+    selected booking slot has a booking date/time.
 
-    A selected secondary event may exist without a date yet,
-    so slots with starts_at=None are not invoiceable.
+    One Hire can have only one Invoice, so incomplete
+    booking slots must not be skipped.
     """
 
-    slot_count = (
-        hire.booking_slots
-        .filter(starts_at__isnull=False)
-        .count()
-    )
+    total_slot_count = hire.booking_slots.count()
 
-    if slot_count < 1:
+    if total_slot_count < 1:
         raise serializers.ValidationError({
             "hire": (
-                "This hire has no completed booking slots. "
-                "At least one booking slot with a start date "
-                "is required before creating an invoice."
+                "This hire has no booking slots."
             )
         })
 
-    return slot_count
+    incomplete_slot_count = (
+        hire.booking_slots
+        .filter(starts_at__isnull=True)
+        .count()
+    )
+
+    if incomplete_slot_count > 0:
+        raise serializers.ValidationError({
+            "hire": (
+                "An invoice cannot be created until "
+                "all selected booking events have a "
+                "booking date and time. "
+                f"{incomplete_slot_count} booking slot(s) "
+                "are still incomplete."
+            )
+        })
+
+    return total_slot_count
 
 
-def validate_slot_shifts(hire, slot_shifts):
+def validate_slot_shifts(
+    hire,
+    slot_shifts,
+):
     """
-    Validate shift counts only for booking slots that
-    actually have a start date/time.
-
-    Slots with starts_at=None are selected future events,
-    but they are not invoiceable yet.
+    Ensure every booking slot of this Hire receives
+    exactly one shift-count entry.
     """
 
     hire_slot_ids = set(
-        hire.booking_slots
-        .filter(starts_at__isnull=False)
-        .values_list("id", flat=True)
+        hire.booking_slots.values_list(
+            "id",
+            flat=True,
+        )
     )
 
     seen_slot_ids = set()
@@ -99,73 +115,138 @@ def validate_slot_shifts(hire, slot_shifts):
         if booking_slot.hire_id != hire.id:
             raise serializers.ValidationError({
                 "slot_shifts": (
-                    "One of the booking slots does not belong "
-                    "to this hire request."
+                    "One of the booking slots does not "
+                    "belong to this hire request."
                 )
             })
 
         if booking_slot.starts_at is None:
             raise serializers.ValidationError({
                 "slot_shifts": (
-                    "A shift count cannot be assigned to an "
-                    "event that does not have a booking date yet."
+                    "A shift count cannot be assigned "
+                    "to an event that does not have a "
+                    "booking date and time."
                 )
             })
 
         if booking_slot.id in seen_slot_ids:
             raise serializers.ValidationError({
                 "slot_shifts": (
-                    "Each booking slot can only be assigned "
-                    "a shift count once."
+                    "Each booking slot can only be "
+                    "assigned a shift count once."
                 )
             })
 
-        seen_slot_ids.add(booking_slot.id)
+        seen_slot_ids.add(
+            booking_slot.id
+        )
 
-    missing_slot_ids = hire_slot_ids - seen_slot_ids
+    missing_slot_ids = (
+        hire_slot_ids - seen_slot_ids
+    )
 
     if missing_slot_ids:
         raise serializers.ValidationError({
             "slot_shifts": (
-                "A shift count must be provided for every "
-                f"booked date. Missing shift count for "
-                f"{len(missing_slot_ids)} booking slot(s)."
+                "A shift count must be provided for "
+                "every booking slot. "
+                f"Missing shift count for "
+                f"{len(missing_slot_ids)} "
+                "booking slot(s)."
             )
         })
 
     return slot_shifts
 
 
-def calculate_service_price_from_slot_shifts(hire, slot_shifts):
+def get_booking_slot_unit_price(
+    hire,
+    booking_slot,
+):
     """
-    total service_price = shift_charge × (sum of shift_count
-    across every booking slot).
+    Get the correct unit price for a booking slot.
+
+    New Hire:
+        booking slot
+        -> booking item
+        -> package snapshot/service price
+
+    Legacy Hire:
+        fallback to hire.booking_price
     """
 
-    shift_charge = hire.booking_price or ZERO_AMOUNT
+    if booking_slot.booking_item_id:
+        return (
+            booking_slot.booking_item.unit_price
+            or ZERO_AMOUNT
+        )
 
-    if shift_charge <= ZERO_AMOUNT:
-        raise serializers.ValidationError({
-            "service_price": (
-                "Service price cannot be calculated "
-                "because the service shift charge is "
-                "not configured correctly."
-            )
-        })
-
-    total_shift_count = sum(
-        item["shift_count"] for item in slot_shifts
+    return (
+        hire.booking_price
+        or ZERO_AMOUNT
     )
 
-    return shift_charge * total_shift_count
 
-
-def apply_slot_shifts(invoice, slot_shifts):
+def calculate_service_price_from_slot_shifts(
+    hire,
+    slot_shifts,
+):
     """
-    Replace an invoice's InvoiceSlotShift rows with the given list.
+    Calculate invoice service price using the unit
+    price of each booking option.
 
-    Existing rows not present anymore are removed; rows are otherwise
-    (re)created so each one goes through its own full_clean().
+    Example:
+
+        Package A:
+            10,000 × 2 shifts = 20,000
+
+        Package B:
+            15,000 × 1 shift = 15,000
+
+        service_price = 35,000
+    """
+
+    total_service_price = ZERO_AMOUNT
+
+    for item in slot_shifts:
+        booking_slot = item[
+            "booking_slot"
+        ]
+
+        shift_count = item[
+            "shift_count"
+        ]
+
+        unit_price = (
+            get_booking_slot_unit_price(
+                hire=hire,
+                booking_slot=booking_slot,
+            )
+        )
+
+        if unit_price <= ZERO_AMOUNT:
+            raise serializers.ValidationError({
+                "service_price": (
+                    "Service price cannot be calculated "
+                    "because one of the selected booking "
+                    "options does not have a valid price."
+                )
+            })
+
+        total_service_price += (
+            unit_price * shift_count
+        )
+
+    return total_service_price
+
+
+def apply_slot_shifts(
+    invoice,
+    slot_shifts,
+):
+    """
+    Replace InvoiceSlotShift rows with the submitted
+    validated slot-shift configuration.
     """
 
     invoice.slot_shifts.all().delete()
@@ -173,8 +254,12 @@ def apply_slot_shifts(invoice, slot_shifts):
     for item in slot_shifts:
         InvoiceSlotShift.objects.create(
             invoice=invoice,
-            booking_slot=item["booking_slot"],
-            shift_count=item["shift_count"],
+            booking_slot=item[
+                "booking_slot"
+            ],
+            shift_count=item[
+                "shift_count"
+            ],
         )
 
 
@@ -182,6 +267,19 @@ def validate_invoice_financial_data(
     attrs,
     instance=None,
 ):
+    """
+    Validate calculated invoice financial values.
+
+    Formula:
+
+        Service Price
+        + Additional Charge
+        - Discount
+        = Total
+        - Advance Payment
+        = Due Payment
+    """
+
     if instance is not None:
         service_price = attrs.get(
             "service_price",
@@ -208,7 +306,9 @@ def validate_invoice_financial_data(
             instance.advance_payment,
         )
 
-        issue_date = instance.issue_date
+        issue_date = (
+            instance.issue_date
+        )
 
         due_payment_last_date = attrs.get(
             "due_payment_last_date",
@@ -240,16 +340,29 @@ def validate_invoice_financial_data(
             ZERO_AMOUNT,
         )
 
-        issue_date = timezone.localdate()
+        issue_date = (
+            timezone.localdate()
+        )
 
         due_payment_last_date = attrs.get(
             "due_payment_last_date"
         )
 
-    service_price = service_price or ZERO_AMOUNT
-    additional_charge = additional_charge or ZERO_AMOUNT
-    discount_price = discount_price or ZERO_AMOUNT
-    advance_payment = advance_payment or ZERO_AMOUNT
+    service_price = (
+        service_price or ZERO_AMOUNT
+    )
+
+    additional_charge = (
+        additional_charge or ZERO_AMOUNT
+    )
+
+    discount_price = (
+        discount_price or ZERO_AMOUNT
+    )
+
+    advance_payment = (
+        advance_payment or ZERO_AMOUNT
+    )
 
     errors = {}
 
@@ -271,7 +384,8 @@ def validate_invoice_financial_data(
         )
     ):
         errors["additional_charge_reason"] = (
-            "Please provide a reason for the additional charge."
+            "Please provide a reason for "
+            "the additional charge."
         )
 
     if discount_price < ZERO_AMOUNT:
@@ -280,17 +394,22 @@ def validate_invoice_financial_data(
         )
 
     amount_before_discount = (
-        service_price + additional_charge
+        service_price
+        + additional_charge
     )
 
-    if discount_price > amount_before_discount:
+    if (
+        discount_price
+        > amount_before_discount
+    ):
         errors["discount_price"] = (
-            "Discount cannot be greater than the total amount "
-            "before discount."
+            "Discount cannot be greater than "
+            "the total amount before discount."
         )
 
     calculated_total = (
-        amount_before_discount - discount_price
+        amount_before_discount
+        - discount_price
     )
 
     if advance_payment < ZERO_AMOUNT:
@@ -300,14 +419,15 @@ def validate_invoice_financial_data(
 
     if advance_payment > calculated_total:
         errors["advance_payment"] = (
-            "Advance payment cannot be greater than "
-            "the total amount."
+            "Advance payment cannot be greater "
+            "than the total amount."
         )
 
     if (
         issue_date
         and due_payment_last_date
-        and due_payment_last_date < issue_date
+        and due_payment_last_date
+        < issue_date
     ):
         errors["due_payment_last_date"] = (
             "Due payment date cannot be earlier "
@@ -315,7 +435,9 @@ def validate_invoice_financial_data(
         )
 
     if errors:
-        raise serializers.ValidationError(errors)
+        raise serializers.ValidationError(
+            errors
+        )
 
     return attrs
 
@@ -324,30 +446,50 @@ def validate_invoice_financial_data(
 # Per-slot shift input
 # =========================================================
 
-class InvoiceSlotShiftInputSerializer(serializers.Serializer):
-    """
-    One entry of: "this booked date gets this many shifts".
 
-    Example:
-        {"booking_slot": "<slot-uid-for-10-aug>", "shift_count": 3}
-        {"booking_slot": "<slot-uid-for-16-aug>", "shift_count": 2}
+class InvoiceSlotShiftInputSerializer(
+    serializers.Serializer
+):
+    """
+    Shift count for one Hire booking slot.
     """
 
-    booking_slot = serializers.PrimaryKeyRelatedField(
-        queryset=HireBookingSlot.objects.all(),
-        error_messages={
-            "does_not_exist": (
-                "The selected booking slot does not exist."
+    booking_slot = (
+        serializers.PrimaryKeyRelatedField(
+            queryset=(
+                HireBookingSlot.objects
+                .select_related(
+                    "hire",
+                    "hire__service",
+                    "booking_item",
+                    "booking_item__package",
+                )
             ),
-        },
+            error_messages={
+                "does_not_exist": (
+                    "The selected booking slot "
+                    "does not exist."
+                ),
+                "incorrect_type": (
+                    "Invalid booking slot ID."
+                ),
+            },
+        )
     )
 
-    shift_count = serializers.IntegerField(
-        min_value=1,
-        error_messages={
-            "invalid": "Shift count must be a valid whole number.",
-            "min_value": "Shift count must be at least 1.",
-        },
+    shift_count = (
+        serializers.IntegerField(
+            min_value=1,
+            error_messages={
+                "invalid": (
+                    "Shift count must be a "
+                    "valid whole number."
+                ),
+                "min_value": (
+                    "Shift count must be at least 1."
+                ),
+            },
+        )
     )
 
 
@@ -355,16 +497,33 @@ class InvoiceSlotShiftInputSerializer(serializers.Serializer):
 # Invoice detail serializer
 # =========================================================
 
+
 class InvoiceDetailSerializer(
     serializers.ModelSerializer
 ):
-    hire = serializers.SerializerMethodField()
+    hire = (
+        serializers.SerializerMethodField()
+    )
 
-    customer = serializers.SerializerMethodField()
-    seller = serializers.SerializerMethodField()
-    brand = serializers.SerializerMethodField()
-    service = serializers.SerializerMethodField()
-    service_summary = serializers.SerializerMethodField()
+    customer = (
+        serializers.SerializerMethodField()
+    )
+
+    seller = (
+        serializers.SerializerMethodField()
+    )
+
+    brand = (
+        serializers.SerializerMethodField()
+    )
+
+    service = (
+        serializers.SerializerMethodField()
+    )
+
+    service_summary = (
+        serializers.SerializerMethodField()
+    )
 
     sub_total = serializers.DecimalField(
         max_digits=12,
@@ -388,24 +547,34 @@ class InvoiceDetailSerializer(
         read_only=True,
     )
 
-    is_partially_paid = serializers.BooleanField(
-        read_only=True,
+    is_partially_paid = (
+        serializers.BooleanField(
+            read_only=True,
+        )
     )
 
-    is_overdue = serializers.BooleanField(
-        read_only=True,
+    is_overdue = (
+        serializers.BooleanField(
+            read_only=True,
+        )
     )
 
-    payment_status = serializers.CharField(
-        read_only=True,
+    payment_status = (
+        serializers.CharField(
+            read_only=True,
+        )
     )
 
-    customer_agreed = serializers.BooleanField(
-        read_only=True,
-        allow_null=True,
+    customer_agreed = (
+        serializers.BooleanField(
+            read_only=True,
+            allow_null=True,
+        )
     )
 
-    can_edit = serializers.SerializerMethodField()
+    can_edit = (
+        serializers.SerializerMethodField()
+    )
 
     can_customer_decide = (
         serializers.SerializerMethodField()
@@ -457,15 +626,26 @@ class InvoiceDetailSerializer(
 
     def get_customer(self, obj):
         return {
-            "id": str(obj.hire.customer_id),
-            "full_name": obj.customer_name_snapshot,
-            "email": obj.customer_email_snapshot,
-            "whatsapp_number": obj.customer_whatsapp_snapshot,
+            "id": str(
+                obj.hire.customer_id
+            ),
+            "full_name": (
+                obj.customer_name_snapshot
+            ),
+            "email": (
+                obj.customer_email_snapshot
+            ),
+            "whatsapp_number": (
+                obj.customer_whatsapp_snapshot
+            ),
         }
 
     def get_seller(self, obj):
         seller = (
-            obj.hire.service.brand.seller
+            obj.hire
+            .service
+            .brand
+            .seller
         )
 
         return {
@@ -479,82 +659,24 @@ class InvoiceDetailSerializer(
         }
 
     def get_brand(self, obj):
-        brand = obj.hire.service.brand
+        brand = (
+            obj.hire.service.brand
+        )
 
         return {
             "id": str(brand.id),
             "brand_name": (
                 obj.brand_name_snapshot
             ),
-            "display_name": obj.display_name_snapshot,
-        }
-
-    def get_service_summary(self, obj):
-        service = obj.hire.service
-
-        shift_hour = service.shift_hour or 0
-        shift_charge = obj.hire.booking_price or ZERO_AMOUNT
-
-        slot_shifts = (
-            obj.slot_shifts
-            .select_related("booking_slot")
-            .order_by("booking_slot__starts_at")
-        )
-
-        breakdown = []
-
-        for slot_shift in slot_shifts:
-            booking_slot = slot_shift.booking_slot
-
-            if booking_slot.starts_at:
-                starts_at = timezone.localtime(
-                    booking_slot.starts_at
-                )
-
-                date = starts_at.strftime("%d %B %Y")
-            else:
-                date = "Not provided"
-
-            slot_amount = (
-                shift_charge * slot_shift.shift_count
-            )
-
-            breakdown.append({
-                "booking_slot_id": str(
-                    slot_shift.booking_slot_id
-                ),
-                "date": date,
-                "shift_count": slot_shift.shift_count,
-                "shift_hours": (
-                    shift_hour * slot_shift.shift_count
-                ),
-                "amount": f"{slot_amount:.2f}",
-            })
-
-        booked_slot_count = (
-            obj.hire.booking_slots
-            .filter(starts_at__isnull=False)
-            .count()
-        )
-
-        return {
-            "slot_count": booked_slot_count,
-            "shift_count": obj.shift_count,
-            "shift_hour_per_slot": shift_hour,
-            "total_shift_hours": (
-                shift_hour * obj.shift_count
+            "display_name": (
+                obj.display_name_snapshot
             ),
-            "shift_charge_per_slot": (
-                f"{shift_charge:.2f}"
-            ),
-            "total_amount": (
-                f"{obj.service_price:.2f}"
-            ),
-            "breakdown": breakdown,
         }
 
     def get_service(self, obj):
-        service = obj.hire.service
+        service = (
+            obj.hire.service
+        )
 
         return {
             "id": str(service.id),
@@ -563,8 +685,156 @@ class InvoiceDetailSerializer(
             ),
         }
 
-    def get_can_edit(self, obj):
-        request = self.context.get("request")
+    def get_service_summary(
+        self,
+        obj,
+    ):
+        service = (
+            obj.hire.service
+        )
+
+        shift_hour = (
+            service.shift_hour or 0
+        )
+
+        slot_shifts = (
+            obj.slot_shifts
+            .select_related(
+                "booking_slot",
+                "booking_slot__booking_item",
+                (
+                    "booking_slot__"
+                    "booking_item__package"
+                ),
+            )
+            .order_by(
+                "booking_slot__starts_at"
+            )
+        )
+
+        breakdown = []
+        unit_prices = set()
+
+        for slot_shift in slot_shifts:
+            booking_slot = (
+                slot_shift.booking_slot
+            )
+
+            unit_price = (
+                get_booking_slot_unit_price(
+                    hire=obj.hire,
+                    booking_slot=booking_slot,
+                )
+            )
+
+            unit_prices.add(
+                unit_price
+            )
+
+            if booking_slot.starts_at:
+                starts_at = (
+                    timezone.localtime(
+                        booking_slot.starts_at
+                    )
+                )
+
+                date = starts_at.strftime(
+                    "%d %B %Y"
+                )
+
+            else:
+                date = "Not provided"
+
+            slot_amount = (
+                unit_price
+                * slot_shift.shift_count
+            )
+
+            breakdown.append({
+                "booking_slot_id": str(
+                    slot_shift.booking_slot_id
+                ),
+                "booking_item_id": (
+                    str(
+                        booking_slot.booking_item_id
+                    )
+                    if booking_slot.booking_item_id
+                    else None
+                ),
+                "booking_title": (
+                    booking_slot
+                    .booking_item
+                    .booking_title
+                    if booking_slot.booking_item_id
+                    else obj.hire.booking_title
+                ),
+                "event_type": (
+                    booking_slot.event_type
+                ),
+                "date": date,
+                "shift_count": (
+                    slot_shift.shift_count
+                ),
+                "shift_hours": (
+                    shift_hour
+                    * slot_shift.shift_count
+                ),
+                "unit_price": (
+                    f"{unit_price:.2f}"
+                ),
+                "amount": (
+                    f"{slot_amount:.2f}"
+                ),
+            })
+
+        booked_slot_count = (
+            obj.hire
+            .booking_slots
+            .filter(
+                starts_at__isnull=False
+            )
+            .count()
+        )
+
+        single_unit_price = (
+            next(iter(unit_prices))
+            if len(unit_prices) == 1
+            else None
+        )
+
+        return {
+            "slot_count": (
+                booked_slot_count
+            ),
+            "shift_count": (
+                obj.shift_count
+            ),
+            "shift_hour_per_slot": (
+                shift_hour
+            ),
+            "total_shift_hours": (
+                shift_hour
+                * obj.shift_count
+            ),
+            "shift_charge_per_slot": (
+                f"{single_unit_price:.2f}"
+                if single_unit_price
+                is not None
+                else None
+            ),
+            "total_amount": (
+                f"{obj.service_price:.2f}"
+            ),
+            "breakdown": breakdown,
+        }
+
+    def get_can_edit(
+        self,
+        obj,
+    ):
+        request = (
+            self.context.get("request")
+        )
 
         if not request:
             return False
@@ -574,11 +844,21 @@ class InvoiceDetailSerializer(
         if not user.is_authenticated:
             return False
 
-        if getattr(user, "role", None) != "seller":
+        if (
+            getattr(
+                user,
+                "role",
+                None,
+            )
+            != "seller"
+        ):
             return False
 
         seller_id = (
-            obj.hire.service.brand.seller_id
+            obj.hire
+            .service
+            .brand
+            .seller_id
         )
 
         if seller_id != user.id:
@@ -592,8 +872,13 @@ class InvoiceDetailSerializer(
             <= obj.due_payment_last_date
         )
 
-    def get_can_customer_decide(self, obj):
-        request = self.context.get("request")
+    def get_can_customer_decide(
+        self,
+        obj,
+    ):
+        request = (
+            self.context.get("request")
+        )
 
         if not request:
             return False
@@ -603,130 +888,166 @@ class InvoiceDetailSerializer(
         if not user.is_authenticated:
             return False
 
-        if getattr(user, "role", None) != "customer":
+        if (
+            getattr(
+                user,
+                "role",
+                None,
+            )
+            != "customer"
+        ):
             return False
 
-        if obj.hire.customer_id != user.id:
+        if (
+            obj.hire.customer_id
+            != user.id
+        ):
             return False
 
-        return obj.customer_agreed is None
+        return (
+            obj.customer_agreed is None
+        )
 
 
 # =========================================================
 # Seller invoice create serializer
 # =========================================================
 
+
 class InvoiceCreateSerializer(
     serializers.ModelSerializer
 ):
-    hire = serializers.PrimaryKeyRelatedField(
-        queryset=Hire.objects.none(),
-        error_messages={
-            "required": "A hire request is required.",
-            "does_not_exist": (
-                "The selected hire request does not exist "
-                "or is not available for invoice creation."
-            ),
-            "incorrect_type": (
-                "Invalid hire request ID."
-            ),
-        },
-    )
-
-    service_price = serializers.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        read_only=True,
-    )
-
-    slot_shifts = InvoiceSlotShiftInputSerializer(
-        many=True,
-        allow_empty=False,
-        write_only=True,
-        error_messages={
-            "required": (
-                "A shift count is required for every booked date."
-            ),
-            "empty": (
-                "A shift count is required for every booked date."
-            ),
-        },
-    )
-
-    discount_price = serializers.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        min_value=ZERO_AMOUNT,
-        default=ZERO_AMOUNT,
-        error_messages={
-            "invalid": (
-                "Discount price must be a valid amount."
-            ),
-            "min_value": (
-                "Discount price cannot be negative."
-            ),
-            "max_digits": (
-                "Discount price is too large."
-            ),
-            "max_decimal_places": (
-                "Discount price can have a maximum "
-                "of 2 decimal places."
-            ),
-        },
-    )
-
-    advance_payment = serializers.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        min_value=ZERO_AMOUNT,
-        default=ZERO_AMOUNT,
-        error_messages={
-            "invalid": (
-                "Advance payment must be a valid amount."
-            ),
-            "min_value": (
-                "Advance payment cannot be negative."
-            ),
-            "max_digits": (
-                "Advance payment amount is too large."
-            ),
-            "max_decimal_places": (
-                "Advance payment can have a maximum "
-                "of 2 decimal places."
-            ),
-        },
-    )
-
-    terms_conditions = serializers.ListField(
-        child=serializers.CharField(
-            max_length=MAX_TERM_LENGTH,
-            allow_blank=False,
-            trim_whitespace=True,
+    hire = (
+        serializers.PrimaryKeyRelatedField(
+            queryset=Hire.objects.none(),
             error_messages={
-                "blank": (
-                    "Terms and conditions cannot "
-                    "contain an empty item."
+                "required": (
+                    "A hire request is required."
                 ),
-                "max_length": (
-                    f"Each term can contain a maximum "
-                    f"of {MAX_TERM_LENGTH} characters."
+                "does_not_exist": (
+                    "The selected hire request "
+                    "does not exist or is not "
+                    "available for invoice creation."
+                ),
+                "incorrect_type": (
+                    "Invalid hire request ID."
                 ),
             },
-        ),
-        required=False,
-        allow_empty=True,
-        max_length=MAX_TERMS_CONDITIONS,
-        error_messages={
-            "not_a_list": (
-                "Terms and conditions must be "
-                "provided as a list."
+        )
+    )
+
+    service_price = (
+        serializers.DecimalField(
+            max_digits=12,
+            decimal_places=2,
+            read_only=True,
+        )
+    )
+
+    slot_shifts = (
+        InvoiceSlotShiftInputSerializer(
+            many=True,
+            allow_empty=False,
+            write_only=True,
+            error_messages={
+                "required": (
+                    "A shift count is required "
+                    "for every booking slot."
+                ),
+                "empty": (
+                    "A shift count is required "
+                    "for every booking slot."
+                ),
+            },
+        )
+    )
+
+    discount_price = (
+        serializers.DecimalField(
+            max_digits=12,
+            decimal_places=2,
+            min_value=ZERO_AMOUNT,
+            default=ZERO_AMOUNT,
+            error_messages={
+                "invalid": (
+                    "Discount price must be "
+                    "a valid amount."
+                ),
+                "min_value": (
+                    "Discount price cannot "
+                    "be negative."
+                ),
+                "max_digits": (
+                    "Discount price is too large."
+                ),
+                "max_decimal_places": (
+                    "Discount price can have "
+                    "a maximum of 2 decimal places."
+                ),
+            },
+        )
+    )
+
+    advance_payment = (
+        serializers.DecimalField(
+            max_digits=12,
+            decimal_places=2,
+            min_value=ZERO_AMOUNT,
+            default=ZERO_AMOUNT,
+            error_messages={
+                "invalid": (
+                    "Advance payment must be "
+                    "a valid amount."
+                ),
+                "min_value": (
+                    "Advance payment cannot "
+                    "be negative."
+                ),
+                "max_digits": (
+                    "Advance payment amount "
+                    "is too large."
+                ),
+                "max_decimal_places": (
+                    "Advance payment can have "
+                    "a maximum of 2 decimal places."
+                ),
+            },
+        )
+    )
+
+    terms_conditions = (
+        serializers.ListField(
+            child=serializers.CharField(
+                max_length=MAX_TERM_LENGTH,
+                allow_blank=False,
+                trim_whitespace=True,
+                error_messages={
+                    "blank": (
+                        "Terms and conditions cannot "
+                        "contain an empty item."
+                    ),
+                    "max_length": (
+                        "Each term can contain a "
+                        f"maximum of "
+                        f"{MAX_TERM_LENGTH} characters."
+                    ),
+                },
             ),
-            "max_length": (
-                f"A maximum of "
-                f"{MAX_TERMS_CONDITIONS} terms "
-                f"and conditions is allowed."
-            ),
-        },
+            required=False,
+            allow_empty=True,
+            max_length=MAX_TERMS_CONDITIONS,
+            error_messages={
+                "not_a_list": (
+                    "Terms and conditions must "
+                    "be provided as a list."
+                ),
+                "max_length": (
+                    f"A maximum of "
+                    f"{MAX_TERMS_CONDITIONS} "
+                    "terms and conditions is allowed."
+                ),
+            },
+        )
     )
 
     class Meta:
@@ -744,16 +1065,20 @@ class InvoiceCreateSerializer(
             "seller_note",
             "terms_conditions",
         ]
-    # Initialization
 
     def __init__(
         self,
         *args,
         **kwargs,
     ):
-        super().__init__(*args, **kwargs)
+        super().__init__(
+            *args,
+            **kwargs,
+        )
 
-        request = self.context.get("request")
+        request = (
+            self.context.get("request")
+        )
 
         if not request:
             return
@@ -762,9 +1087,16 @@ class InvoiceCreateSerializer(
 
         if (
             user.is_authenticated
-            and getattr(user, "role", None) == "seller"
+            and getattr(
+                user,
+                "role",
+                None,
+            )
+            == "seller"
         ):
-            self.fields["hire"].queryset = (
+            self.fields[
+                "hire"
+            ].queryset = (
                 Hire.objects
                 .select_related(
                     "customer",
@@ -773,19 +1105,23 @@ class InvoiceCreateSerializer(
                     "service__brand__seller",
                 )
                 .filter(
-                    status=HireStatus.ACCEPTED,
-                    service__brand__seller=user,
+                    status=(
+                        HireStatus.ACCEPTED
+                    ),
+                    service__brand__seller=(
+                        user
+                    ),
                     invoice__isnull=True,
                 )
             )
-
-    # Hire validation
 
     def validate_hire(
         self,
         hire,
     ):
-        request = self.context.get("request")
+        request = (
+            self.context.get("request")
+        )
 
         if not request:
             raise PermissionDenied(
@@ -799,13 +1135,22 @@ class InvoiceCreateSerializer(
                 "Authentication is required."
             )
 
-        if getattr(user, "role", None) != "seller":
+        if (
+            getattr(
+                user,
+                "role",
+                None,
+            )
+            != "seller"
+        ):
             raise PermissionDenied(
                 "Only sellers can create invoices."
             )
 
         seller_id = (
-            hire.service.brand.seller_id
+            hire.service
+            .brand
+            .seller_id
         )
 
         if seller_id != user.id:
@@ -814,7 +1159,10 @@ class InvoiceCreateSerializer(
                 "for another seller's hire."
             )
 
-        if hire.status != HireStatus.ACCEPTED:
+        if (
+            hire.status
+            != HireStatus.ACCEPTED
+        ):
             raise serializers.ValidationError(
                 "An invoice can only be created "
                 "for an accepted hire request."
@@ -830,23 +1178,17 @@ class InvoiceCreateSerializer(
 
         return hire
 
-    # Due date validation
-
     def validate_due_payment_last_date(
         self,
         value,
     ):
-        today = timezone.localdate()
-
-        if value < today:
+        if value < timezone.localdate():
             raise serializers.ValidationError(
-                "Due payment date cannot be "
-                "in the past."
+                "Due payment date cannot "
+                "be in the past."
             )
 
         return value
-
-    # Object validation
 
     def validate(
         self,
@@ -861,14 +1203,21 @@ class InvoiceCreateSerializer(
                 )
             })
 
-        get_hire_slot_count(hire)
+        get_hire_slot_count(
+            hire
+        )
 
         slot_shifts = validate_slot_shifts(
             hire=hire,
-            slot_shifts=attrs.get("slot_shifts", []),
+            slot_shifts=attrs.get(
+                "slot_shifts",
+                [],
+            ),
         )
 
-        attrs["slot_shifts"] = slot_shifts
+        attrs["slot_shifts"] = (
+            slot_shifts
+        )
 
         attrs["service_price"] = (
             calculate_service_price_from_slot_shifts(
@@ -877,17 +1226,20 @@ class InvoiceCreateSerializer(
             )
         )
 
-        return validate_invoice_financial_data(
-            attrs
+        return (
+            validate_invoice_financial_data(
+                attrs
+            )
         )
-
-    # Create
 
     def create(
         self,
         validated_data,
     ):
-        request = self.context["request"]
+        request = (
+            self.context["request"]
+        )
+
         seller = request.user
 
         submitted_hire = (
@@ -895,13 +1247,13 @@ class InvoiceCreateSerializer(
         )
 
         slot_shifts_data = (
-            validated_data.pop("slot_shifts")
+            validated_data.pop(
+                "slot_shifts"
+            )
         )
 
         try:
             with transaction.atomic():
-                # Lock hire to protect invoice creation
-                # against concurrent requests.
                 hire = (
                     Hire.objects
                     .select_for_update()
@@ -909,24 +1261,31 @@ class InvoiceCreateSerializer(
                         "customer",
                         "service",
                         "service__brand",
-                        "service__brand__seller",
+                        (
+                            "service__brand__"
+                            "seller"
+                        ),
                     )
                     .get(
                         pk=submitted_hire.pk
                     )
                 )
 
-                # Re-check hire status after database lock
-                if hire.status != HireStatus.ACCEPTED:
-                    raise serializers.ValidationError({
-                        "hire": (
-                            "The hire request is no longer "
-                            "accepted, so an invoice cannot "
-                            "be created."
-                        )
-                    })
+                if (
+                    hire.status
+                    != HireStatus.ACCEPTED
+                ):
+                    raise (
+                        serializers.ValidationError({
+                            "hire": (
+                                "The hire request is "
+                                "no longer accepted, "
+                                "so an invoice cannot "
+                                "be created."
+                            )
+                        })
+                    )
 
-                # Re-check seller ownership
                 seller_id = (
                     hire.service
                     .brand
@@ -939,39 +1298,47 @@ class InvoiceCreateSerializer(
                         "for this hire request."
                     )
 
-                # Re-check duplicate invoice
                 if Invoice.objects.filter(
                     hire=hire
                 ).exists():
-                    raise serializers.ValidationError({
-                        "hire": (
-                            "An invoice already exists "
-                            "for this hire request."
-                        )
-                    })
+                    raise (
+                        serializers.ValidationError({
+                            "hire": (
+                                "An invoice already "
+                                "exists for this "
+                                "hire request."
+                            )
+                        })
+                    )
 
-                # Re-validate booking slots / shift counts
-                get_hire_slot_count(hire)
-
-                slot_shifts_data = validate_slot_shifts(
-                    hire=hire,
-                    slot_shifts=slot_shifts_data,
+                get_hire_slot_count(
+                    hire
                 )
 
-                # Recalculate service price
-                validated_data["service_price"] = (
-                    calculate_service_price_from_slot_shifts(
+                slot_shifts_data = (
+                    validate_slot_shifts(
                         hire=hire,
-                        slot_shifts=slot_shifts_data,
+                        slot_shifts=(
+                            slot_shifts_data
+                        ),
                     )
                 )
 
-                # Final financial validation
+                validated_data[
+                    "service_price"
+                ] = (
+                    calculate_service_price_from_slot_shifts(
+                        hire=hire,
+                        slot_shifts=(
+                            slot_shifts_data
+                        ),
+                    )
+                )
+
                 validate_invoice_financial_data(
                     validated_data
                 )
 
-                # Create invoice
                 invoice = (
                     Invoice.objects.create(
                         hire=hire,
@@ -979,15 +1346,15 @@ class InvoiceCreateSerializer(
                     )
                 )
 
-                # Create one InvoiceSlotShift row per booked date
-                apply_slot_shifts(invoice, slot_shifts_data)
+                apply_slot_shifts(
+                    invoice,
+                    slot_shifts_data,
+                )
 
-                # Notification
                 create_invoice_created_notification(
                     invoice
                 )
 
-                # Email after transaction commits
                 transaction.on_commit(
                     lambda invoice_pk=invoice.pk: (
                         send_invoice_created_email(
@@ -1018,11 +1385,12 @@ class InvoiceCreateSerializer(
             }) from error
 
         except DjangoValidationError as error:
-            raise convert_model_validation_error(
-                error
+            raise (
+                convert_model_validation_error(
+                    error
+                )
             ) from error
 
-    # Response
     def to_representation(
         self,
         instance,
@@ -1037,12 +1405,15 @@ class InvoiceCreateSerializer(
 # Customer invoice decision serializer
 # =========================================================
 
+
 class InvoiceCustomerDecisionSerializer(
     serializers.ModelSerializer
 ):
-    customer_agreed = serializers.BooleanField(
-        required=True,
-        allow_null=False,
+    customer_agreed = (
+        serializers.BooleanField(
+            required=True,
+            allow_null=False,
+        )
     )
 
     class Meta:
@@ -1052,8 +1423,14 @@ class InvoiceCustomerDecisionSerializer(
             "customer_agreed",
         ]
 
-    def validate(self, attrs):
-        request = self.context.get("request")
+    def validate(
+        self,
+        attrs,
+    ):
+        request = (
+            self.context.get("request")
+        )
+
         invoice = self.instance
 
         if not request:
@@ -1068,42 +1445,51 @@ class InvoiceCustomerDecisionSerializer(
                 "Authentication is required."
             )
 
-        if getattr(user, "role", None) != "customer":
+        if (
+            getattr(
+                user,
+                "role",
+                None,
+            )
+            != "customer"
+        ):
             raise PermissionDenied(
-                "Only customers can submit an "
-                "invoice decision."
+                "Only customers can submit "
+                "an invoice decision."
             )
 
         if invoice is None:
-            raise serializers.ValidationError(
-                {
-                    "detail": (
-                        "Invoice instance is required."
-                    )
-                }
-            )
+            raise serializers.ValidationError({
+                "detail": (
+                    "Invoice instance is required."
+                )
+            })
 
-        if invoice.hire.customer_id != user.id:
+        if (
+            invoice.hire.customer_id
+            != user.id
+        ):
             raise PermissionDenied(
-                "You cannot submit a decision for "
-                "another customer's invoice."
+                "You cannot submit a decision "
+                "for another customer's invoice."
             )
 
-        if invoice.customer_agreed is not None:
+        if (
+            invoice.customer_agreed
+            is not None
+        ):
             decision = (
                 "agreed"
                 if invoice.customer_agreed
                 else "disagreed"
             )
 
-            raise serializers.ValidationError(
-                {
-                    "customer_agreed": (
-                        f"You have already {decision} "
-                        "with this invoice."
-                    )
-                }
-            )
+            raise serializers.ValidationError({
+                "customer_agreed": (
+                    f"You have already {decision} "
+                    "with this invoice."
+                )
+            })
 
         return attrs
 
@@ -1112,7 +1498,10 @@ class InvoiceCustomerDecisionSerializer(
         instance,
         validated_data,
     ):
-        request = self.context["request"]
+        request = (
+            self.context["request"]
+        )
+
         customer = request.user
 
         try:
@@ -1120,7 +1509,9 @@ class InvoiceCustomerDecisionSerializer(
                 locked_hire = (
                     Hire.objects
                     .select_for_update()
-                    .get(pk=instance.hire_id)
+                    .get(
+                        pk=instance.hire_id
+                    )
                 )
 
                 locked_invoice = (
@@ -1130,47 +1521,72 @@ class InvoiceCustomerDecisionSerializer(
                         "hire",
                         "hire__customer",
                         "hire__service",
-                        "hire__service__brand",
-                        "hire__service__brand__seller",
+                        (
+                            "hire__service__"
+                            "brand"
+                        ),
+                        (
+                            "hire__service__brand__"
+                            "seller"
+                        ),
                     )
-                    .get(pk=instance.pk)
+                    .get(
+                        pk=instance.pk
+                    )
                 )
 
-                if locked_hire.customer_id != customer.id:
+                if (
+                    locked_hire.customer_id
+                    != customer.id
+                ):
                     raise PermissionDenied(
-                        "You cannot submit a decision "
-                        "for this invoice."
+                        "You cannot submit a "
+                        "decision for this invoice."
                     )
 
-                if locked_invoice.customer_agreed is not None:
+                if (
+                    locked_invoice
+                    .customer_agreed
+                    is not None
+                ):
                     decision = (
                         "agreed"
-                        if locked_invoice.customer_agreed
+                        if (
+                            locked_invoice
+                            .customer_agreed
+                        )
                         else "disagreed"
                     )
 
-                    raise serializers.ValidationError({
-                        "customer_agreed": (
-                            f"You have already {decision} "
-                            "with this invoice."
-                        )
-                    })
+                    raise (
+                        serializers.ValidationError({
+                            "customer_agreed": (
+                                f"You have already "
+                                f"{decision} with "
+                                "this invoice."
+                            )
+                        })
+                    )
 
-                customer_agreed = validated_data[
-                    "customer_agreed"
-                ]
+                customer_agreed = (
+                    validated_data[
+                        "customer_agreed"
+                    ]
+                )
 
                 if (
                     customer_agreed
                     and locked_hire.status
                     != HireStatus.ACCEPTED
                 ):
-                    raise serializers.ValidationError({
-                        "customer_agreed": (
-                            "Only an accepted hire can "
-                            "be completed."
-                        )
-                    })
+                    raise (
+                        serializers.ValidationError({
+                            "customer_agreed": (
+                                "Only an accepted hire "
+                                "can be completed."
+                            )
+                        })
+                    )
 
                 locked_invoice.customer_agreed = (
                     customer_agreed
@@ -1178,8 +1594,6 @@ class InvoiceCustomerDecisionSerializer(
 
                 locked_invoice.save()
 
-                # Customer agreement means
-                # the service/work is completed.
                 if customer_agreed:
                     locked_hire.status = (
                         HireStatus.COMPLETED
@@ -1201,13 +1615,16 @@ class InvoiceCustomerDecisionSerializer(
         except Hire.DoesNotExist as error:
             raise serializers.ValidationError({
                 "detail": (
-                    "The hire request could not be found."
+                    "The hire request could "
+                    "not be found."
                 )
             }) from error
 
         except DjangoValidationError as error:
-            raise convert_model_validation_error(
-                error
+            raise (
+                convert_model_validation_error(
+                    error
+                )
             ) from error
 
         return locked_invoice
@@ -1217,101 +1634,139 @@ class InvoiceCustomerDecisionSerializer(
 # Seller invoice update serializer
 # =========================================================
 
+
 class InvoiceUpdateSerializer(
     serializers.ModelSerializer
 ):
-    service_price = serializers.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        read_only=True,
+    service_price = (
+        serializers.DecimalField(
+            max_digits=12,
+            decimal_places=2,
+            read_only=True,
+        )
     )
 
-    slot_shifts = InvoiceSlotShiftInputSerializer(
-        many=True,
-        required=False,
-        allow_empty=False,
-        write_only=True,
-        error_messages={
-            "empty": (
-                "A shift count is required for every booked date."
-            ),
-        },
-    )
-
-    discount_price = serializers.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        min_value=ZERO_AMOUNT,
-        required=False,
-        error_messages={
-            "invalid": "Discount price must be a valid amount.",
-            "min_value": "Discount price cannot be negative.",
-            "max_digits": "Discount price is too large.",
-            "max_decimal_places": (
-                "Discount price can have a maximum "
-                "of 2 decimal places."
-            ),
-        },
-    )
-
-    advance_payment = serializers.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        min_value=ZERO_AMOUNT,
-        required=False,
-        error_messages={
-            "invalid": "Advance payment must be a valid amount.",
-            "min_value": "Advance payment cannot be negative.",
-            "max_digits": "Advance payment amount is too large.",
-            "max_decimal_places": (
-                "Advance payment can have a maximum "
-                "of 2 decimal places."
-            ),
-        },
-    )
-
-    due_payment_last_date = serializers.DateField(
-        required=False,
-        error_messages={
-            "invalid": "Enter a valid due payment date.",
-        },
-    )
-
-    seller_note = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        allow_null=True,
-    )
-
-    terms_conditions = serializers.ListField(
-        child=serializers.CharField(
-            max_length=MAX_TERM_LENGTH,
-            allow_blank=False,
-            trim_whitespace=True,
+    slot_shifts = (
+        InvoiceSlotShiftInputSerializer(
+            many=True,
+            required=False,
+            allow_empty=False,
+            write_only=True,
             error_messages={
-                "blank": (
-                    "Terms and conditions cannot "
-                    "contain an empty item."
-                ),
-                "max_length": (
-                    f"Each term can contain a maximum "
-                    f"of {MAX_TERM_LENGTH} characters."
+                "empty": (
+                    "A shift count is required "
+                    "for every booking slot."
                 ),
             },
-        ),
-        required=False,
-        allow_empty=True,
-        max_length=MAX_TERMS_CONDITIONS,
-        error_messages={
-            "not_a_list": (
-                "Terms and conditions must be provided "
-                "as a list."
+        )
+    )
+
+    discount_price = (
+        serializers.DecimalField(
+            max_digits=12,
+            decimal_places=2,
+            min_value=ZERO_AMOUNT,
+            required=False,
+            error_messages={
+                "invalid": (
+                    "Discount price must be "
+                    "a valid amount."
+                ),
+                "min_value": (
+                    "Discount price cannot "
+                    "be negative."
+                ),
+                "max_digits": (
+                    "Discount price is too large."
+                ),
+                "max_decimal_places": (
+                    "Discount price can have "
+                    "a maximum of 2 decimal places."
+                ),
+            },
+        )
+    )
+
+    advance_payment = (
+        serializers.DecimalField(
+            max_digits=12,
+            decimal_places=2,
+            min_value=ZERO_AMOUNT,
+            required=False,
+            error_messages={
+                "invalid": (
+                    "Advance payment must be "
+                    "a valid amount."
+                ),
+                "min_value": (
+                    "Advance payment cannot "
+                    "be negative."
+                ),
+                "max_digits": (
+                    "Advance payment amount "
+                    "is too large."
+                ),
+                "max_decimal_places": (
+                    "Advance payment can have "
+                    "a maximum of 2 decimal places."
+                ),
+            },
+        )
+    )
+
+    due_payment_last_date = (
+        serializers.DateField(
+            required=False,
+            error_messages={
+                "invalid": (
+                    "Enter a valid due "
+                    "payment date."
+                ),
+            },
+        )
+    )
+
+    seller_note = (
+        serializers.CharField(
+            required=False,
+            allow_blank=True,
+            allow_null=True,
+        )
+    )
+
+    terms_conditions = (
+        serializers.ListField(
+            child=serializers.CharField(
+                max_length=MAX_TERM_LENGTH,
+                allow_blank=False,
+                trim_whitespace=True,
+                error_messages={
+                    "blank": (
+                        "Terms and conditions cannot "
+                        "contain an empty item."
+                    ),
+                    "max_length": (
+                        "Each term can contain a "
+                        f"maximum of "
+                        f"{MAX_TERM_LENGTH} characters."
+                    ),
+                },
             ),
-            "max_length": (
-                f"A maximum of {MAX_TERMS_CONDITIONS} "
-                "terms and conditions is allowed."
-            ),
-        },
+            required=False,
+            allow_empty=True,
+            max_length=MAX_TERMS_CONDITIONS,
+            error_messages={
+                "not_a_list": (
+                    "Terms and conditions must "
+                    "be provided as a list."
+                ),
+                "max_length": (
+                    f"A maximum of "
+                    f"{MAX_TERMS_CONDITIONS} "
+                    "terms and conditions is allowed."
+                ),
+            },
+        )
     )
 
     class Meta:
@@ -1329,24 +1784,26 @@ class InvoiceUpdateSerializer(
             "terms_conditions",
         ]
 
-    # Field validation
     def validate_due_payment_last_date(
         self,
         value,
     ):
-        today = timezone.localdate()
-
-        if value < today:
+        if value < timezone.localdate():
             raise serializers.ValidationError(
-                "Due payment date cannot be changed "
-                "to a past date."
+                "Due payment date cannot be "
+                "changed to a past date."
             )
 
         return value
 
-    # Object validation
-    def validate(self, attrs):
-        request = self.context.get("request")
+    def validate(
+        self,
+        attrs,
+    ):
+        request = (
+            self.context.get("request")
+        )
+
         invoice = self.instance
 
         if not request:
@@ -1361,7 +1818,14 @@ class InvoiceUpdateSerializer(
                 "Authentication is required."
             )
 
-        if getattr(user, "role", None) != "seller":
+        if (
+            getattr(
+                user,
+                "role",
+                None,
+            )
+            != "seller"
+        ):
             raise PermissionDenied(
                 "Only sellers can edit invoices."
             )
@@ -1382,10 +1846,14 @@ class InvoiceUpdateSerializer(
 
         if seller_id != user.id:
             raise PermissionDenied(
-                "You cannot edit another seller's invoice."
+                "You cannot edit another "
+                "seller's invoice."
             )
 
-        if invoice.customer_agreed is not None:
+        if (
+            invoice.customer_agreed
+            is not None
+        ):
             decision = (
                 "agreed"
                 if invoice.customer_agreed
@@ -1394,9 +1862,9 @@ class InvoiceUpdateSerializer(
 
             raise serializers.ValidationError({
                 "detail": (
-                    f"This invoice can no longer be edited "
-                    f"because the customer has already "
-                    f"{decision}."
+                    "This invoice can no longer "
+                    "be edited because the customer "
+                    f"has already {decision}."
                 )
             })
 
@@ -1406,20 +1874,25 @@ class InvoiceUpdateSerializer(
         ):
             raise serializers.ValidationError({
                 "detail": (
-                    "This invoice can no longer be edited "
-                    "because the due payment date has passed."
+                    "This invoice can no longer "
+                    "be edited because the due "
+                    "payment date has passed."
                 )
             })
 
-        # Only recalculate service price when
-        # slot_shifts is actually being changed.
         if "slot_shifts" in attrs:
-            slot_shifts = validate_slot_shifts(
-                hire=invoice.hire,
-                slot_shifts=attrs["slot_shifts"],
+            slot_shifts = (
+                validate_slot_shifts(
+                    hire=invoice.hire,
+                    slot_shifts=(
+                        attrs["slot_shifts"]
+                    ),
+                )
             )
 
-            attrs["slot_shifts"] = slot_shifts
+            attrs["slot_shifts"] = (
+                slot_shifts
+            )
 
             attrs["service_price"] = (
                 calculate_service_price_from_slot_shifts(
@@ -1428,22 +1901,29 @@ class InvoiceUpdateSerializer(
                 )
             )
 
-        return validate_invoice_financial_data(
-            attrs,
-            instance=invoice,
+        return (
+            validate_invoice_financial_data(
+                attrs,
+                instance=invoice,
+            )
         )
 
-    # Update
     def update(
         self,
         instance,
         validated_data,
     ):
-        request = self.context["request"]
+        request = (
+            self.context["request"]
+        )
+
         seller = request.user
 
-        slot_shifts_data = validated_data.pop(
-            "slot_shifts", None
+        slot_shifts_data = (
+            validated_data.pop(
+                "slot_shifts",
+                None,
+            )
         )
 
         try:
@@ -1455,15 +1935,20 @@ class InvoiceUpdateSerializer(
                         "hire",
                         "hire__customer",
                         "hire__service",
-                        "hire__service__brand",
-                        "hire__service__brand__seller",
+                        (
+                            "hire__service__"
+                            "brand"
+                        ),
+                        (
+                            "hire__service__brand__"
+                            "seller"
+                        ),
                     )
                     .get(
                         pk=instance.pk
                     )
                 )
 
-                # Re-check seller ownership after database lock
                 seller_id = (
                     locked_invoice
                     .hire
@@ -1474,62 +1959,84 @@ class InvoiceUpdateSerializer(
 
                 if seller_id != seller.id:
                     raise PermissionDenied(
-                        "You cannot edit this invoice."
+                        "You cannot edit "
+                        "this invoice."
                     )
 
-                # Re-check customer decision after database lock
                 if (
-                    locked_invoice.customer_agreed
+                    locked_invoice
+                    .customer_agreed
                     is not None
                 ):
                     decision = (
                         "agreed"
-                        if locked_invoice.customer_agreed
+                        if (
+                            locked_invoice
+                            .customer_agreed
+                        )
                         else "disagreed"
                     )
 
-                    raise serializers.ValidationError({
-                        "detail": (
-                            f"This invoice can no longer "
-                            f"be edited because the customer "
-                            f"has already {decision}."
-                        )
-                    })
+                    raise (
+                        serializers.ValidationError({
+                            "detail": (
+                                "This invoice can no "
+                                "longer be edited because "
+                                "the customer has already "
+                                f"{decision}."
+                            )
+                        })
+                    )
 
-                # Re-check due date after database lock
                 if (
                     timezone.localdate()
-                    > locked_invoice.due_payment_last_date
+                    > locked_invoice
+                    .due_payment_last_date
                 ):
-                    raise serializers.ValidationError({
-                        "detail": (
-                            "This invoice can no longer "
-                            "be edited because the due "
-                            "payment date has passed."
-                        )
-                    })
-
-                # Slot shifts + service price
-                if slot_shifts_data is not None:
-                    slot_shifts_data = validate_slot_shifts(
-                        hire=locked_invoice.hire,
-                        slot_shifts=slot_shifts_data,
+                    raise (
+                        serializers.ValidationError({
+                            "detail": (
+                                "This invoice can no "
+                                "longer be edited because "
+                                "the due payment date "
+                                "has passed."
+                            )
+                        })
                     )
 
-                    validated_data["service_price"] = (
+                if (
+                    slot_shifts_data
+                    is not None
+                ):
+                    slot_shifts_data = (
+                        validate_slot_shifts(
+                            hire=(
+                                locked_invoice.hire
+                            ),
+                            slot_shifts=(
+                                slot_shifts_data
+                            ),
+                        )
+                    )
+
+                    validated_data[
+                        "service_price"
+                    ] = (
                         calculate_service_price_from_slot_shifts(
-                            hire=locked_invoice.hire,
-                            slot_shifts=slot_shifts_data,
+                            hire=(
+                                locked_invoice.hire
+                            ),
+                            slot_shifts=(
+                                slot_shifts_data
+                            ),
                         )
                     )
 
-                # Financial validation
                 validate_invoice_financial_data(
                     validated_data,
                     instance=locked_invoice,
                 )
 
-                # Apply only changed fields
                 changed_fields = []
 
                 for (
@@ -1554,20 +2061,26 @@ class InvoiceUpdateSerializer(
                         field_name
                     )
 
-                if slot_shifts_data is not None:
-                    changed_fields.append("slot_shifts")
+                if (
+                    slot_shifts_data
+                    is not None
+                ):
+                    changed_fields.append(
+                        "slot_shifts"
+                    )
 
-                # Nothing changed
                 if not changed_fields:
                     return locked_invoice
 
-                # Model full_clean() will also run
-                # from your Invoice.save().
                 locked_invoice.save()
 
-                if slot_shifts_data is not None:
+                if (
+                    slot_shifts_data
+                    is not None
+                ):
                     apply_slot_shifts(
-                        locked_invoice, slot_shifts_data
+                        locked_invoice,
+                        slot_shifts_data,
                     )
 
                 create_invoice_updated_notification(
@@ -1586,11 +2099,11 @@ class InvoiceUpdateSerializer(
             }) from error
 
         except DjangoValidationError as error:
-            raise convert_model_validation_error(
-                error
+            raise (
+                convert_model_validation_error(
+                    error
+                )
             ) from error
-
-    # Response
 
     def to_representation(
         self,

@@ -424,11 +424,9 @@ class Invoice(UIDMixin, TimeStampedModel):
 
         self.customer_name_snapshot = customer.full_name
         self.customer_email_snapshot = customer.email
-        booking_slot = self.hire.booking_slots.first()
-
+        
         self.customer_whatsapp_snapshot = (
-            booking_slot.whatsapp_number
-            if booking_slot else ""
+            self.hire.customer_whatsapp_number or ""
         )
 
         self.seller_name_snapshot = seller.full_name
