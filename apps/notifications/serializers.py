@@ -76,6 +76,9 @@ class NotificationInvoiceSerializer(
     required here, so notification serialization stays
     cheap.
     """
+    hire_id = serializers.CharField(
+        read_only=True,
+    )
 
     total = serializers.DecimalField(
         max_digits=12,
@@ -98,6 +101,7 @@ class NotificationInvoiceSerializer(
 
         fields = [
             "id",
+            "hire_id",
             "invoice_number",
 
             "brand_name_snapshot",

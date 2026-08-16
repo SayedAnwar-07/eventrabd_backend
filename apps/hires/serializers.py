@@ -21,6 +21,12 @@ from apps.hires.models import (
     HireBookingSlot,
     HireStatus,
 )
+
+from apps.notifications.models import (
+    Notification,
+    NotificationType,
+)
+
 from apps.packages.models import ServicePackage
 from apps.users.models import User
 
@@ -1171,7 +1177,26 @@ class HireCreateSerializer(
                     event_type=event_type,
                     **slot_data,
                 )
+        # Seller in-app notification
+        seller = hire.service.brand.seller
 
+        Notification.objects.get_or_create(
+            recipient=seller,
+            hire=hire,
+            notification_type=NotificationType.HIRE_CREATED,
+            defaults={
+                "title": "New hire request",
+                "message": (
+                    f"{customer.full_name} sent you a new hire request "
+                    f"for {hire.booking_title}."
+                ),
+                "data": {
+                    "hire_id": str(hire.id),
+                },
+            },
+        )
+
+        # Existing email notification
         transaction.on_commit(
             lambda hire_pk=hire.pk: (
                 send_hire_notification_email(

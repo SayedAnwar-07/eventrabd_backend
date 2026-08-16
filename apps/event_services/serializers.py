@@ -385,6 +385,7 @@ class PublicServiceSellerSerializer(serializers.ModelSerializer):
 class PublicServiceBrandSerializer(serializers.ModelSerializer):
     logo_url = serializers.SerializerMethodField()
     rating = serializers.SerializerMethodField()
+    is_owner = serializers.SerializerMethodField()
 
     class Meta:
         model = EventBrand
@@ -398,9 +399,21 @@ class PublicServiceBrandSerializer(serializers.ModelSerializer):
             "district",
             "rating",
             "review_count",
+            "is_owner",
         ]
 
         read_only_fields = fields
+
+    def get_is_owner(self, obj):
+        request = self.context.get("request")
+
+        if not request or not request.user.is_authenticated:
+            return False
+
+        return (
+            getattr(request.user, "role", None) == "seller"
+            and obj.seller_id == request.user.id
+        )
 
     def get_logo_url(self, obj):
         if not obj.logo:
@@ -429,9 +442,7 @@ class PublicServiceBrandSerializer(serializers.ModelSerializer):
             Decimal(obj.rating_sum)
             / Decimal(obj.review_count)
             / Decimal("2")
-        ).quantize(
-            Decimal("0.01")
-        )
+        ).quantize(Decimal("0.01"))
 
 
 class PublicEventServiceCardSerializer(serializers.ModelSerializer):
