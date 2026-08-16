@@ -1,18 +1,17 @@
 from django.db.models import Count, Q
-from django.utils import timezone
 
-from rest_framework import status
-from rest_framework.decorators import action
-from rest_framework.mixins import (
-    ListModelMixin,
-    RetrieveModelMixin,
+from rest_framework import serializers, status
+from rest_framework.generics import (
+    ListAPIView,
+    RetrieveAPIView,
 )
+from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import (
     BasePermission,
     IsAuthenticated,
 )
 from rest_framework.response import Response
-from rest_framework.viewsets import GenericViewSet
+from rest_framework.views import APIView
 
 from .models import Notification
 from .serializers import (
@@ -22,12 +21,21 @@ from .serializers import (
 )
 
 
-class IsCustomer(BasePermission):
+# =========================================================
+# Permission
+# =========================================================
+
+
+class IsNotificationUser(BasePermission):
     """
-    Allow notification API access only to customer users.
+    Notification access is available to:
+        - customer
+        - seller
     """
 
-    message = "Only customers can access notifications."
+    message = (
+        "Only customers and sellers can access notifications."
+    )
 
     def has_permission(self, request, view):
         user = request.user
@@ -35,73 +43,90 @@ class IsCustomer(BasePermission):
         return bool(
             user
             and user.is_authenticated
-            and getattr(user, "role", None) == "customer"
+            and getattr(user, "role", None)
+            in {
+                "customer",
+                "seller",
+            }
         )
 
 
-class NotificationViewSet(
-    ListModelMixin,
-    RetrieveModelMixin,
-    GenericViewSet,
+# =========================================================
+# Pagination
+# =========================================================
+
+
+class NotificationCursorPagination(
+    CursorPagination
+):
+    page_size = 20
+    ordering = "-created_at"
+    cursor_query_param = "cursor"
+
+
+# =========================================================
+# Base mixin
+# =========================================================
+
+
+class NotificationQueryMixin:
+    """
+    Shared recipient filtering.
+
+    Every endpoint only works with notifications
+    belonging to the authenticated user.
+    """
+
+    def get_base_queryset(self):
+        return Notification.objects.for_recipient(
+            self.request.user
+        )
+
+
+# =========================================================
+# List notifications
+# =========================================================
+
+
+class NotificationListView(
+    NotificationQueryMixin,
+    ListAPIView,
 ):
     """
-    Customer notification API.
+    GET /notifications/
 
-    Customers can:
-        - List their notifications.
-        - Retrieve one of their notifications.
-        - See total and unread counts.
-        - Mark one notification as read.
-        - Mark all notifications as read.
+    Optional:
 
-    Customers cannot:
-        - Create notifications.
-        - Edit notification content.
-        - Delete notifications.
-        - Access another customer's notifications.
+        ?is_read=true
+        ?is_read=false
     """
 
     serializer_class = NotificationSerializer
 
     permission_classes = [
         IsAuthenticated,
-        IsCustomer,
+        IsNotificationUser,
     ]
 
-    lookup_field = "id"
-
-    http_method_names = [
-        "get",
-        "post",
-        "head",
-        "options",
-    ]
-
-    def get_base_queryset(self):
-        """
-        Return only notifications belonging to
-        the authenticated customer.
-        """
-
-        return (
-            Notification.objects.select_related(
-                "invoice",
-            )
-            .filter(
-                recipient=self.request.user,
-            )
-            .order_by("-created_at")
-        )
+    pagination_class = (
+        NotificationCursorPagination
+    )
 
     def get_queryset(self):
         queryset = self.get_base_queryset()
 
-        is_read = self.request.query_params.get(
-            "is_read"
+        is_read = (
+            self.request
+            .query_params
+            .get("is_read")
         )
 
         if is_read is not None:
-            normalized_value = is_read.strip().lower()
+            normalized_value = (
+                is_read
+                .strip()
+                .lower()
+            )
 
             if normalized_value == "true":
                 queryset = queryset.filter(
@@ -113,69 +138,97 @@ class NotificationViewSet(
                     is_read=False,
                 )
 
-        return queryset
+            else:
+                raise serializers.ValidationError({
+                    "is_read": (
+                        "is_read must be either "
+                        "'true' or 'false'."
+                    )
+                })
 
-    @action(
-        detail=False,
-        methods=["get"],
-        url_path="count",
-    )
-    def count(self, request):
-        """
-        Return total and unread notification counts.
+        return (
+            NotificationSerializer
+            .setup_eager_loading(
+                queryset
+            )
+        )
 
-        Response:
-        {
-            "total_count": 10,
-            "unread_count": 4
-        }
-        """
 
+# =========================================================
+# Retrieve notification
+# =========================================================
+
+
+class NotificationDetailView(
+    NotificationQueryMixin,
+    RetrieveAPIView,
+):
+    """
+    GET /notifications/<id>/
+    """
+
+    serializer_class = NotificationSerializer
+
+    permission_classes = [
+        IsAuthenticated,
+        IsNotificationUser,
+    ]
+
+    lookup_field = "id"
+
+    def get_queryset(self):
         queryset = self.get_base_queryset()
 
-        count_data = queryset.aggregate(
-            total_count=Count("id"),
+        return (
+            NotificationSerializer
+            .setup_eager_loading(
+                queryset
+            )
+        )
+
+
+# =========================================================
+# Count notifications
+# =========================================================
+
+
+class NotificationCountView(
+    NotificationQueryMixin,
+    APIView,
+):
+    """
+    GET /notifications/count/
+
+    Uses one aggregate query.
+    """
+
+    permission_classes = [
+        IsAuthenticated,
+        IsNotificationUser,
+    ]
+
+    def get(self, request):
+        queryset = (
+            self.get_base_queryset()
+            .order_by()
+        )
+
+        data = queryset.aggregate(
+            total_count=Count(
+                "id",
+            ),
             unread_count=Count(
                 "id",
-                filter=Q(is_read=False),
+                filter=Q(
+                    is_read=False,
+                ),
             ),
         )
 
-        serializer = NotificationCountSerializer(
-            count_data
-        )
-
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK,
-        )
-
-    @action(
-        detail=True,
-        methods=["post"],
-        url_path="mark-read",
-    )
-    def mark_read(self, request, id=None):
-        """
-        Mark one customer notification as read.
-        """
-
-        notification = self.get_object()
-
-        if not notification.is_read:
-            notification.is_read = True
-            notification.read_at = timezone.now()
-
-            notification.save(
-                update_fields=[
-                    "is_read",
-                    "read_at",
-                    "updated_at",
-                ]
+        serializer = (
+            NotificationCountSerializer(
+                data
             )
-
-        serializer = self.get_serializer(
-            notification
         )
 
         return Response(
@@ -183,39 +236,122 @@ class NotificationViewSet(
             status=status.HTTP_200_OK,
         )
 
-    @action(
-        detail=False,
-        methods=["post"],
-        url_path="mark-all-read",
-    )
-    def mark_all_read(self, request):
-        """
-        Mark all unread notifications belonging to
-        the authenticated customer as read.
-        """
 
-        now = timezone.now()
+# =========================================================
+# Mark one notification read
+# =========================================================
 
-        updated_count = (
+
+class NotificationMarkReadView(
+    NotificationQueryMixin,
+    APIView,
+):
+    """
+    POST /notifications/<id>/mark-read/
+    """
+
+    permission_classes = [
+        IsAuthenticated,
+        IsNotificationUser,
+    ]
+
+    def post(
+        self,
+        request,
+        id,
+    ):
+        notification = (
             self.get_base_queryset()
             .filter(
-                is_read=False,
+                id=id,
             )
-            .update(
-                is_read=True,
-                read_at=now,
-                updated_at=now,
+            .first()
+        )
+
+        if notification is None:
+            return Response(
+                {
+                    "detail": (
+                        "Notification not found."
+                    )
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        notification.mark_as_read()
+
+        queryset = (
+            Notification.objects
+            .filter(
+                pk=notification.pk
             )
         )
 
-        response_data = {
-            "updated_count": updated_count,
+        notification = (
+            NotificationSerializer
+            .setup_eager_loading(
+                queryset
+            )
+            .first()
+        )
+
+        serializer = (
+            NotificationSerializer(
+                notification,
+                context={
+                    "request": request,
+                },
+            )
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
+        )
+
+
+# =========================================================
+# Mark all notifications read
+# =========================================================
+
+
+class NotificationMarkAllReadView(
+    NotificationQueryMixin,
+    APIView,
+):
+    """
+    POST /notifications/mark-all-read/
+
+    Performs one UPDATE query.
+    """
+
+    permission_classes = [
+        IsAuthenticated,
+        IsNotificationUser,
+    ]
+
+    def post(self, request):
+        queryset = (
+            self.get_base_queryset()
+            .order_by()
+        )
+
+        updated_count = (
+            queryset
+            .unread()
+            .mark_all_read()
+        )
+
+        data = {
+            "updated_count": (
+                updated_count
+            ),
             "unread_count": 0,
         }
 
         serializer = (
             NotificationMarkAllReadSerializer(
-                response_data
+                data
             )
         )
 
