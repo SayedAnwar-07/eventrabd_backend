@@ -22,6 +22,7 @@ from apps.users.models import User
 from apps.users.permissions import IsAdminUserOnly
 from apps.users.serializers import (
     AdminLoginSerializer,
+    AdminProfileSerializer,
     AdminUserListSerializer,
     ForgotPasswordSerializer,
     LoginSerializer,
@@ -195,19 +196,24 @@ class AdminLoginView(generics.GenericAPIView):
         serializer = self.get_serializer(
             data=request.data,
         )
-        serializer.is_valid(raise_exception=True)
+
+        serializer.is_valid(
+            raise_exception=True,
+        )
 
         user = serializer.validated_data["user"]
+
         tokens = get_tokens_for_user(user)
 
         response = Response(
             {
                 "access": tokens["access"],
-                "user": UserProfileSerializer(user).data,
+                "user": AdminProfileSerializer(
+                    user
+                ).data,
             },
             status=status.HTTP_200_OK,
         )
-
         set_refresh_cookie(
             response,
             tokens["refresh"],
@@ -435,7 +441,9 @@ class AdminUserDeleteView(generics.DestroyAPIView):
 
         return Response(
             {
-                "message": "User deleted successfully.",
+                "message": (
+                    "User deleted successfully."
+                ),
             },
             status=status.HTTP_200_OK,
         )

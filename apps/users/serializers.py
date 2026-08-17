@@ -717,11 +717,37 @@ class AdminLoginSerializer(serializers.Serializer):
             )
 
         return {
-            "user": user
+            "user": user,
         }
 
 
+class AdminProfileSerializer(UserProfileSerializer):
+    """
+    Profile returned only from admin authentication.
+
+    is_staff is included so the frontend can safely
+    identify a persisted admin session.
+    """
+
+    class Meta(UserProfileSerializer.Meta):
+        fields = (
+            UserProfileSerializer.Meta.fields
+            + [
+                "is_staff",
+            ]
+        )
+
+        read_only_fields = (
+            UserProfileSerializer.Meta.read_only_fields
+            + [
+                "is_staff",
+            ]
+        )
+
+
 class AdminUserListSerializer(serializers.ModelSerializer):
+    profile_image_url = serializers.SerializerMethodField()
+
     class Meta:
         model = User
 
@@ -734,8 +760,31 @@ class AdminUserListSerializer(serializers.ModelSerializer):
             "slug",
             "role",
             "contact_number",
+            "whatsapp_number",
             "service_area",
             "is_verified",
             "is_staff",
             "created_at",
         ]
+
+        read_only_fields = fields
+
+    def get_profile_image_url(self, obj):
+        if not obj.profile_image:
+            return None
+
+        try:
+            return obj.profile_image.build_url(
+                transformation=[
+                    {
+                        "width": 500,
+                        "height": 500,
+                        "crop": "limit",
+                    }
+                ],
+                quality="auto",
+                fetch_format="auto",
+            )
+
+        except Exception:
+            return None
