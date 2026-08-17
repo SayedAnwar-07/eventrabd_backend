@@ -347,6 +347,16 @@ class PublicServiceSellerSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
+    whatsapp_number = serializers.CharField(
+        source="seller.whatsapp_number",
+        read_only=True,
+    )
+
+    contact_number = serializers.CharField(
+        source="seller.contact_number",
+        read_only=True,
+    )
+
     profile_image_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -356,9 +366,8 @@ class PublicServiceSellerSerializer(serializers.ModelSerializer):
             "full_name",
             "profile_image_url",
             "whatsapp_number",
+            "contact_number",
         ]
-
-        read_only_fields = fields
 
     def get_profile_image_url(self, obj):
         seller = obj.seller
