@@ -130,7 +130,10 @@ class Review(UIDMixin, TimeStampedModel):
         ),
     )
 
-    comment = models.TextField()
+    comment = models.TextField(
+        blank=True,
+        default="",
+    )
 
     image = CloudinaryField(
         "review_image",

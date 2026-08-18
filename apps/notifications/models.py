@@ -34,6 +34,13 @@ class NotificationType(models.TextChoices):
         "invoice_updated",
         "Invoice Updated",
     )
+    
+    # Customer submits a service review.
+    # Recipient: Seller.
+    REVIEW_CREATED = (
+        "review_created",
+        "New Service Review",
+    )
 
 
 class NotificationQuerySet(models.QuerySet):
@@ -127,6 +134,14 @@ class Notification(
 
     invoice = models.ForeignKey(
         "invoices.Invoice",
+        on_delete=models.CASCADE,
+        related_name="notifications",
+        null=True,
+        blank=True,
+    )
+    
+    review = models.ForeignKey(
+        "reviews.Review",
         on_delete=models.CASCADE,
         related_name="notifications",
         null=True,
@@ -242,11 +257,19 @@ class Notification(
                     Q(
                         hire__isnull=False,
                         invoice__isnull=True,
+                        review__isnull=True,
                     )
                     |
                     Q(
                         hire__isnull=True,
                         invoice__isnull=False,
+                        review__isnull=True,
+                    )
+                    |
+                    Q(
+                        hire__isnull=True,
+                        invoice__isnull=True,
+                        review__isnull=False,
                     )
                 ),
                 name="notif_one_source_chk",
@@ -264,6 +287,7 @@ class Notification(
                         ),
                         hire__isnull=False,
                         invoice__isnull=True,
+                        review__isnull=True,
                     )
                     |
                     Q(
@@ -273,6 +297,16 @@ class Notification(
                         ],
                         hire__isnull=True,
                         invoice__isnull=False,
+                        review__isnull=True,
+                    )
+                    |
+                    Q(
+                        notification_type=(
+                            NotificationType.REVIEW_CREATED
+                        ),
+                        hire__isnull=True,
+                        invoice__isnull=True,
+                        review__isnull=False,
                     )
                 ),
                 name="notif_type_source_chk",
@@ -320,6 +354,20 @@ class Notification(
                     ),
                 ),
                 name="notif_unique_invoice_created",
+            ),
+            
+            models.UniqueConstraint(
+                fields=[
+                    "recipient",
+                    "review",
+                    "notification_type",
+                ],
+                condition=Q(
+                    notification_type=(
+                        NotificationType.REVIEW_CREATED
+                    ),
+                ),
+                name="notif_unique_review_created",
             ),
         ]
 

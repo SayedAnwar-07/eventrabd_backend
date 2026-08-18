@@ -4,12 +4,12 @@ from apps.hires.models import Hire
 from apps.invoices.models import Invoice
 
 from .models import Notification
+from apps.reviews.models import Review
 
 
 # =========================================================
 # Hire notification summary
 # =========================================================
-
 
 class NotificationHireSerializer(
     serializers.ModelSerializer
@@ -61,7 +61,6 @@ class NotificationHireSerializer(
 # =========================================================
 # Invoice notification summary
 # =========================================================
-
 
 class NotificationInvoiceSerializer(
     serializers.ModelSerializer
@@ -130,9 +129,65 @@ class NotificationInvoiceSerializer(
 
 
 # =========================================================
-# Main notification serializer
+# Review notification summary
 # =========================================================
 
+class NotificationReviewSerializer(
+    serializers.ModelSerializer
+):
+    hire_id = serializers.CharField(
+        source="hire.id",
+        read_only=True,
+    )
+
+    service_id = serializers.CharField(
+        source="hire.service.id",
+        read_only=True,
+    )
+
+    service_name = serializers.CharField(
+        source="hire.service.service_name",
+        read_only=True,
+    )
+
+    service_display_name = serializers.CharField(
+        source="hire.service.get_service_name_display",
+        read_only=True,
+    )
+
+    customer_name = serializers.CharField(
+        source="hire.customer.full_name",
+        read_only=True,
+    )
+
+    stars = serializers.DecimalField(
+        max_digits=2,
+        decimal_places=1,
+        read_only=True,
+    )
+
+    class Meta:
+        model = Review
+
+        fields = [
+            "id",
+            "hire_id",
+            "service_id",
+            "service_name",
+            "service_display_name",
+            "customer_name",
+            "rating",
+            "stars",
+            "comment",
+            "created_at",
+        ]
+
+        read_only_fields = fields
+             
+
+# =========================================================
+# Main notification serializer
+# =========================================================
 
 class NotificationSerializer(
     serializers.ModelSerializer
@@ -160,6 +215,10 @@ class NotificationSerializer(
     invoice = NotificationInvoiceSerializer(
         read_only=True,
     )
+    
+    review = NotificationReviewSerializer(
+        read_only=True,
+    )
 
     class Meta:
         model = Notification
@@ -173,6 +232,7 @@ class NotificationSerializer(
 
             "hire",
             "invoice",
+            "review",
 
             "is_read",
             "read_at",
@@ -214,14 +274,19 @@ class NotificationSerializer(
             "hire",
             "hire__customer",
             "hire__service",
+
             "invoice",
+
+            "review",
+            "review__hire",
+            "review__hire__customer",
+            "review__hire__service",
         )
 
 
 # =========================================================
 # Notification counts
 # =========================================================
-
 
 class NotificationCountSerializer(
     serializers.Serializer
@@ -251,7 +316,6 @@ class NotificationCountSerializer(
 # =========================================================
 # Mark all as read response
 # =========================================================
-
 
 class NotificationMarkAllReadSerializer(
     serializers.Serializer

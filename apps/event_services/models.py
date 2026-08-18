@@ -97,6 +97,11 @@ class EventService(UIDMixin, TimeStampedModel):
         default=0,
         editable=False,
     )
+    
+    report_count = models.PositiveBigIntegerField(
+        default=0,
+        editable=False,
+    )
 
     class Meta:
         verbose_name = "Event Service"

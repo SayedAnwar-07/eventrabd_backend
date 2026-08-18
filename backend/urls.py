@@ -13,6 +13,7 @@ urlpatterns = [
     path('notifications/', include('apps.notifications.urls')),
     path('packages/', include('apps.packages.urls')),
     path('reviews/', include('apps.reviews.urls')),
+    path('reports/', include('apps.reports.urls')),
 ]
 
 if settings.DEBUG:

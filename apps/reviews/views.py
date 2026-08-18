@@ -5,6 +5,7 @@ from django.db.models import F
 from rest_framework import status
 from rest_framework.exceptions import (
     APIException,
+    NotFound,
     PermissionDenied,
 )
 from rest_framework.generics import GenericAPIView
@@ -109,11 +110,16 @@ class ReviewViewSet(GenericViewSet):
             raise_exception=True,
         )
 
-        serializer.save()
+        review = serializer.save()
+
+        response_serializer = ReviewDetailSerializer(
+            review,
+            context=self.get_serializer_context(),
+        )
 
         return success_response(
             message="Review submitted successfully.",
-            data=serializer.data,
+            data=response_serializer.data,
             status_code=status.HTTP_201_CREATED,
         )
 
@@ -157,11 +163,16 @@ class ReviewViewSet(GenericViewSet):
             raise_exception=True,
         )
 
-        serializer.save()
+        updated_review = serializer.save()
+
+        response_serializer = ReviewDetailSerializer(
+            updated_review,
+            context=self.get_serializer_context(),
+        )
 
         return success_response(
             message="Review updated successfully.",
-            data=serializer.data,
+            data=response_serializer.data,
         )
 
     # -----------------------------------------------------
@@ -179,7 +190,6 @@ class ReviewViewSet(GenericViewSet):
         )
 
         with transaction.atomic():
-
             try:
                 review = (
                     Review.objects
@@ -196,8 +206,6 @@ class ReviewViewSet(GenericViewSet):
                 )
 
             except Review.DoesNotExist:
-                from rest_framework.exceptions import NotFound
-
                 raise NotFound(
                     "Review was not found."
                 )
@@ -219,16 +227,17 @@ class ReviewViewSet(GenericViewSet):
                     "You cannot delete another customer's review."
                 )
 
+            # -------------------------------------------------
+            # Store required values BEFORE deleting the review
+            # -------------------------------------------------
+
             rating = review.rating
             service_id = review.hire.service_id
             brand_id = review.hire.service.brand_id
 
-            # Delete source-of-truth row.
-            review.delete()
-
-            # ---------------------------------------------
-            # Service statistics
-            # ---------------------------------------------
+            # -------------------------------------------------
+            # Service rating statistics
+            # -------------------------------------------------
 
             service_updated = (
                 EventService.objects
@@ -252,9 +261,9 @@ class ReviewViewSet(GenericViewSet):
                     "Service review statistics are inconsistent."
                 )
 
-            # ---------------------------------------------
-            # Brand statistics
-            # ---------------------------------------------
+            # -------------------------------------------------
+            # Brand rating statistics
+            # -------------------------------------------------
 
             brand_updated = (
                 EventBrand.objects
@@ -277,6 +286,12 @@ class ReviewViewSet(GenericViewSet):
                 raise APIException(
                     "Brand review statistics are inconsistent."
                 )
+
+            # -------------------------------------------------
+            # Delete review only after statistics updated
+            # -------------------------------------------------
+
+            review.delete()
 
         return success_response(
             message="Review deleted successfully.",
@@ -421,8 +436,6 @@ class HireReviewEligibilityView(APIView):
             )
 
         except Hire.DoesNotExist:
-            from rest_framework.exceptions import NotFound
-
             raise NotFound(
                 "Hire request was not found."
             )
@@ -432,21 +445,23 @@ class HireReviewEligibilityView(APIView):
                 "You cannot check another customer's hire."
             )
 
-        # ---------------------------------------------
+        # -------------------------------------------------
         # Existing review
-        # ---------------------------------------------
+        # -------------------------------------------------
 
         try:
             existing_review = hire.review
+
         except ObjectDoesNotExist:
             existing_review = None
 
-        # ---------------------------------------------
+        # -------------------------------------------------
         # Invoice
-        # ---------------------------------------------
+        # -------------------------------------------------
 
         try:
             invoice = hire.invoice
+
         except ObjectDoesNotExist:
             invoice = None
 

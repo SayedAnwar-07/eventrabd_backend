@@ -12,6 +12,10 @@ from apps.event_planner.models import EventBrand
 from apps.event_services.models import EventService
 from apps.hires.models import Hire, HireStatus
 from apps.users.models import User
+from apps.notifications.models import (
+    Notification,
+    NotificationType,
+)
 
 from .models import (
     Review,
@@ -219,12 +223,10 @@ class ReviewCreateSerializer(
     )
 
     comment = serializers.CharField(
+        required=False,
+        allow_blank=True,
         trim_whitespace=True,
-        allow_blank=False,
-        error_messages={
-            "required": "Review comment is required.",
-            "blank": "Review comment cannot be empty.",
-        },
+        default="",
     )
 
     image = serializers.ImageField(
@@ -390,7 +392,6 @@ class ReviewCreateSerializer(
                     ),
                 )
 
-                # Atomic brand rating statistics.
                 EventBrand.objects.filter(
                     pk=hire.service.brand_id,
                 ).update(
@@ -402,7 +403,43 @@ class ReviewCreateSerializer(
                     ),
                 )
 
-                return review
+                # -----------------------------------------
+                # Notify seller about new review
+                # -----------------------------------------
+
+                # -----------------------------------------
+                # Notify seller about new review
+                # -----------------------------------------
+
+                seller = hire.service.brand.seller
+
+                Notification.objects.create(
+                    recipient=seller,
+                    review=review,
+                    notification_type=(
+                        NotificationType.REVIEW_CREATED
+                    ),
+                    title="New Service Review",
+                    message=(
+                        f"{customer.full_name} left a "
+                        f"{review.stars}-star review on your "
+                        f"{hire.service.get_service_name_display()} "
+                        f"service."
+                    ),
+                    data={
+                        "review_id": str(review.id),
+                        "hire_id": str(hire.id),
+
+                        # Service page routing
+                        "service_id": str(hire.service_id),
+                        "service_name": hire.service.service_name,
+                        "brand_slug": hire.service.brand.slug,
+
+                        # Optional useful information
+                        "brand_id": str(hire.service.brand_id),
+                        "rating": str(review.stars),
+                    },
+                )
 
         except Hire.DoesNotExist as error:
             raise serializers.ValidationError({
@@ -445,11 +482,8 @@ class ReviewUpdateSerializer(
 
     comment = serializers.CharField(
         required=False,
+        allow_blank=True,
         trim_whitespace=True,
-        allow_blank=False,
-        error_messages={
-            "blank": "Review comment cannot be empty.",
-        },
     )
 
     image = serializers.ImageField(
