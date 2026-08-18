@@ -89,6 +89,17 @@ class ReportReporterSerializer(serializers.Serializer):
         read_only=True,
     )
 
+    image_url = serializers.SerializerMethodField()
+
+    def get_image_url(self, obj):
+        if not getattr(obj, "image", None):
+            return None
+
+        try:
+            return obj.image.url
+        except (AttributeError, ValueError):
+            return None
+
 
 class ServiceReportDetailSerializer(
     serializers.ModelSerializer

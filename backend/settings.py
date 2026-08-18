@@ -38,7 +38,8 @@ raw_cors = os.getenv(
     "http://localhost:5000,"
     "http://localhost:5173,"
     "https://eventrabd-test.netlify.app,"
-    "https://eventrabd.vercel.app"
+    "https://eventrabd.vercel.app,"
+    "https://eventra-bd-admin.netlify.app"
 )
 
 CORS_ALLOWED_ORIGINS = [
@@ -58,7 +59,8 @@ raw_csrf = os.getenv(
     "http://localhost:5000,"
     "http://localhost:5173,"
     "https://eventrabd-test.netlify.app,"
-    "https://eventrabd.vercel.app"
+    "https://eventrabd.vercel.app,"
+    "https://eventra-bd-admin.netlify.app"
 )
 
 CSRF_TRUSTED_ORIGINS = [

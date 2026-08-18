@@ -63,6 +63,7 @@ urlpatterns = [
         AdminServiceListView.as_view(),
         name="admin-service-list",
     ),
+
     path(
         "admin/services/<str:service_id>/",
         AdminServiceDetailView.as_view(),
