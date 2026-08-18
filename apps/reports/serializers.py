@@ -25,6 +25,10 @@ class ReportSellerSerializer(serializers.Serializer):
     full_name = serializers.CharField(
         read_only=True,
     )
+    
+    email = serializers.CharField(
+        read_only=True,
+    )
 
     whatsapp_number = serializers.CharField(
         read_only=True,

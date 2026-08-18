@@ -394,6 +394,14 @@ class UpdateProfileView(generics.UpdateAPIView):
 
 # ── Admin User Management ──────────────────────────────────────────────────────
 
+class AdminProfileView(generics.RetrieveAPIView):
+    serializer_class = AdminProfileSerializer
+    permission_classes = [IsAdminUserOnly]
+
+    def get_object(self):
+        return self.request.user
+
+
 class AdminSellerListView(generics.ListAPIView):
     serializer_class = AdminUserListSerializer
     permission_classes = [IsAdminUserOnly]
@@ -401,7 +409,10 @@ class AdminSellerListView(generics.ListAPIView):
     def get_queryset(self):
         return (
             User.objects
-            .filter(role="seller")
+            .filter(
+                role="seller",
+                is_staff=False,
+            )
             .order_by("-created_at")
         )
 
@@ -413,37 +424,35 @@ class AdminCustomerListView(generics.ListAPIView):
     def get_queryset(self):
         return (
             User.objects
-            .filter(role="customer")
+            .filter(
+                role="customer",
+                is_staff=False,
+            )
             .order_by("-created_at")
         )
 
 
 class AdminUserDeleteView(generics.DestroyAPIView):
-    queryset = User.objects.all()
+    serializer_class = AdminUserListSerializer
     permission_classes = [IsAdminUserOnly]
     lookup_field = "id"
 
+    def get_queryset(self):
+        # Admin dashboard manages normal platform users only.
+        # Staff/admin accounts cannot be deleted through this endpoint.
+        return User.objects.filter(
+            is_staff=False,
+            role__in=["seller", "customer"],
+        )
+
     def destroy(self, request, *args, **kwargs):
         user_to_delete = self.get_object()
-
-        if request.user == user_to_delete:
-            return Response(
-                {
-                    "detail": (
-                        "You cannot delete your "
-                        "own admin account."
-                    )
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
         user_to_delete.delete()
 
         return Response(
             {
-                "message": (
-                    "User deleted successfully."
-                ),
+                "message": "User deleted successfully.",
             },
             status=status.HTTP_200_OK,
         )
