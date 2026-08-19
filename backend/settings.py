@@ -81,6 +81,7 @@ INSTALLED_APPS = [
 
     # Third-party
     "rest_framework",
+    "channels",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
     "allauth",
@@ -137,7 +138,23 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "backend.wsgi.application"
+# WSGI_APPLICATION = "backend.wsgi.application"
+ASGI_APPLICATION = "backend.asgi.application"
+
+# CHANNELS
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [
+                os.getenv(
+                    "REDIS_URL",
+                    "redis://localhost:6379/1",
+                )
+            ],
+        },
+    },
+}
 
 
 # ── DATABASE CONFIG ───────────────────────────────

@@ -10,12 +10,37 @@ INVOICE_FIELD_LABELS = {
 }
 
 
+def send_notification_to_user(notification):
+    """
+    Send realtime notification event.
+
+    WebSocket implementation will be added here.
+    Database remains the source of truth.
+    """
+
+    from asgiref.sync import async_to_sync
+    from channels.layers import get_channel_layer
+
+    channel_layer = get_channel_layer()
+
+    async_to_sync(
+        channel_layer.group_send
+    )(
+        f"user_{notification.recipient_id}",
+        {
+            "type": "notification_message",
+            "notification_id": str(notification.id),
+            "notification_type": notification.notification_type,
+        },
+    )
+
+
 def create_invoice_created_notification(invoice):
     """
     Create an in-app notification for the invoice customer.
     """
 
-    return Notification.objects.create(
+    notification = Notification.objects.create(
         recipient_id=invoice.hire.customer_id,
         invoice=invoice,
         notification_type=(
@@ -31,6 +56,10 @@ def create_invoice_created_notification(invoice):
             "invoice_id": str(invoice.id),
         },
     )
+
+    send_notification_to_user(notification)
+
+    return notification
 
 
 def create_invoice_updated_notification(
@@ -54,7 +83,7 @@ def create_invoice_updated_notification(
         readable_changed_fields
     )
 
-    return Notification.objects.create(
+    notification = Notification.objects.create(
         recipient_id=invoice.hire.customer_id,
         invoice=invoice,
         notification_type=(
@@ -71,3 +100,7 @@ def create_invoice_updated_notification(
             "changed_fields": changed_fields,
         },
     )
+
+    send_notification_to_user(notification)
+
+    return notification

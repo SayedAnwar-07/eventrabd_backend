@@ -13,3 +13,6 @@ octanineop@gmail.com
 valorant.dexter.tamim@gmail.com
 
 SecurepassWord($@)
+
+// never delete
+gunicorn backend.wsgi:application
