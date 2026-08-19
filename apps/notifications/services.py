@@ -13,9 +13,6 @@ INVOICE_FIELD_LABELS = {
 def send_notification_to_user(notification):
     """
     Send realtime notification event.
-
-    WebSocket implementation will be added here.
-    Database remains the source of truth.
     """
 
     from asgiref.sync import async_to_sync

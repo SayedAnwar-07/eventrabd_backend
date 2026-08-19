@@ -76,6 +76,7 @@ class NotificationInvoiceSerializer(
     cheap.
     """
     hire_id = serializers.CharField(
+        source="hire.id",
         read_only=True,
     )
 

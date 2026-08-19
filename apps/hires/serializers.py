@@ -1180,7 +1180,7 @@ class HireCreateSerializer(
         # Seller in-app notification
         seller = hire.service.brand.seller
 
-        Notification.objects.get_or_create(
+        notification, created = Notification.objects.get_or_create(
             recipient=seller,
             hire=hire,
             notification_type=NotificationType.HIRE_CREATED,
@@ -1195,6 +1195,11 @@ class HireCreateSerializer(
                 },
             },
         )
+
+        if created:
+            from apps.notifications.services import send_notification_to_user
+
+            send_notification_to_user(notification)
 
         # Existing email notification
         transaction.on_commit(

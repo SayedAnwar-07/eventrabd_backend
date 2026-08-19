@@ -413,7 +413,7 @@ class ReviewCreateSerializer(
 
                 seller = hire.service.brand.seller
 
-                Notification.objects.create(
+                notification = Notification.objects.create(
                     recipient=seller,
                     review=review,
                     notification_type=(
@@ -436,6 +436,10 @@ class ReviewCreateSerializer(
                         "rating": str(review.stars),
                     },
                 )
+
+                from apps.notifications.services import send_notification_to_user
+
+                send_notification_to_user(notification)
 
                 return review
 

@@ -3,13 +3,13 @@ from urllib.parse import parse_qs
 from channels.middleware import BaseMiddleware
 from channels.db import database_sync_to_async
 
-from django.contrib.auth.models import AnonymousUser
-
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 
 @database_sync_to_async
 def get_user_from_token(token):
+    from django.contrib.auth.models import AnonymousUser
+
     try:
         validated_token = JWTAuthentication().get_validated_token(
             token
@@ -33,6 +33,8 @@ class JWTAuthMiddleware(BaseMiddleware):
         receive,
         send,
     ):
+        from django.contrib.auth.models import AnonymousUser
+
         query_string = scope["query_string"].decode()
 
         query_params = parse_qs(query_string)
