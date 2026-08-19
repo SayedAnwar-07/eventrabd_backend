@@ -11,6 +11,8 @@ from rest_framework import (
     permissions,
 )
 
+from apps.event_planner.constants import DIVISION_VALUES
+
 from apps.event_services.models import (
     EventService,
     ServiceGalleryImage,
@@ -117,21 +119,19 @@ class PublicEventServiceListView(
             .get("division")
         )
 
-        district = (
-            self.request
-            .query_params
-            .get("district")
-        )
-
         # -------------------------------------------------
         # Service type filter
         # -------------------------------------------------
 
         if service_type:
+            service_type = (
+                service_type
+                .strip()
+                .lower()
+            )
+
             queryset = queryset.filter(
-                service_name__iexact=(
-                    service_type.strip()
-                )
+                service_name__iexact=service_type
             )
 
         # -------------------------------------------------
@@ -139,22 +139,41 @@ class PublicEventServiceListView(
         # -------------------------------------------------
 
         if division:
-            queryset = queryset.filter(
-                brand__division__iexact=(
-                    division.strip()
-                )
+            division = (
+                division
+                .strip()
+                .lower()
             )
 
-        # -------------------------------------------------
-        # District filter
-        # -------------------------------------------------
+            if division in DIVISION_VALUES:
+                # If user selects Whole Bangladesh,
+                # only brands explicitly serving
+                # Whole Bangladesh are returned.
+                if division == "whole_bangladesh":
+                    queryset = queryset.filter(
+                        brand__division__contains=[
+                            "whole_bangladesh"
+                        ]
+                    )
 
-        if district:
-            queryset = queryset.filter(
-                brand__district__iexact=(
-                    district.strip()
-                )
-            )
+                # If user selects a specific division,
+                # include:
+                # 1. brands serving that division
+                # 2. brands serving Whole Bangladesh
+                else:
+                    queryset = queryset.filter(
+                        Q(
+                            brand__division__contains=[
+                                division
+                            ]
+                        )
+                        |
+                        Q(
+                            brand__division__contains=[
+                                "whole_bangladesh"
+                            ]
+                        )
+                    )
 
         # -------------------------------------------------
         # Search
@@ -163,28 +182,62 @@ class PublicEventServiceListView(
         if search:
             search = search.strip()
 
-            queryset = queryset.filter(
+            search_query = (
                 Q(
                     service_name__icontains=search
                 )
-                | Q(
+                |
+                Q(
                     description__icontains=search
                 )
-                | Q(
+                |
+                Q(
                     brand__brand_name__icontains=search
                 )
-                | Q(
+                |
+                Q(
                     brand__display_name__icontains=search
                 )
-                | Q(
-                    brand__division__icontains=search
+                |
+                Q(
+                    brand__office_address__icontains=search
                 )
-                | Q(
-                    brand__district__icontains=search
-                )
-                | Q(
+                |
+                Q(
                     brand__seller__full_name__icontains=search
                 )
+            )
+
+            normalized_search = (
+                search
+                .lower()
+                .replace(" ", "_")
+            )
+
+            if normalized_search in DIVISION_VALUES:
+                if normalized_search == "whole_bangladesh":
+                    search_query |= Q(
+                        brand__division__contains=[
+                            "whole_bangladesh"
+                        ]
+                    )
+                else:
+                    search_query |= (
+                        Q(
+                            brand__division__contains=[
+                                normalized_search
+                            ]
+                        )
+                        |
+                        Q(
+                            brand__division__contains=[
+                                "whole_bangladesh"
+                            ]
+                        )
+                    )
+
+            queryset = queryset.filter(
+                search_query
             )
 
         return queryset
@@ -269,7 +322,9 @@ class EventServiceListView(
         if service_type:
             queryset = queryset.filter(
                 service_name__iexact=(
-                    service_type.strip()
+                    service_type
+                    .strip()
+                    .lower()
                 )
             )
 
@@ -284,17 +339,25 @@ class EventServiceListView(
                 Q(
                     service_name__icontains=search
                 )
-                | Q(
+                |
+                Q(
                     description__icontains=search
                 )
-                | Q(
+                |
+                Q(
                     slug__icontains=search
                 )
-                | Q(
+                |
+                Q(
                     brand__brand_name__icontains=search
                 )
-                | Q(
-                    brand__service_area__icontains=search
+                |
+                Q(
+                    brand__display_name__icontains=search
+                )
+                |
+                Q(
+                    brand__office_address__icontains=search
                 )
             )
 

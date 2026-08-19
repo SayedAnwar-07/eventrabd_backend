@@ -32,11 +32,6 @@ class PublicServiceSellerSerializer(
         read_only=True,
     )
 
-    whatsapp_number = serializers.CharField(
-        source="seller.whatsapp_number",
-        read_only=True,
-    )
-
     contact_number = serializers.CharField(
         source="seller.contact_number",
         read_only=True,
@@ -115,7 +110,7 @@ class PublicServiceBrandSerializer(
             "slug",
             "logo_url",
             "division",
-            "district",
+            "office_address",
             "rating",
             "review_count",
             "is_owner",
@@ -196,7 +191,6 @@ class PublicServiceBrandSerializer(
         ).quantize(
             Decimal("0.01")
         )
-
 
 # =========================================================
 # Public service card

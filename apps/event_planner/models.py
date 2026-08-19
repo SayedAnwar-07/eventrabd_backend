@@ -1,14 +1,18 @@
 import cloudinary.models
+
 from decimal import Decimal
+
+from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
-from django.core.exceptions import ValidationError
 from django.utils.text import slugify
 
 from apps.core.models import TimeStampedModel, UIDMixin
+from apps.event_planner.constants import DIVISION_CHOICES
 from apps.event_planner.utils import validate_image_size
 from apps.users.models import User
-from apps.event_planner.constants import DIVISION_CHOICES, DIVISION_DISTRICTS
 
 
 class EventBrand(UIDMixin, TimeStampedModel):
@@ -18,7 +22,7 @@ class EventBrand(UIDMixin, TimeStampedModel):
         related_name="event_brand",
         limit_choices_to={"role": "seller"},
     )
-    
+
     display_name = models.CharField(
         max_length=255,
         unique=True,
@@ -34,7 +38,7 @@ class EventBrand(UIDMixin, TimeStampedModel):
         db_index=True,
         help_text="Unique public name for this event-service brand.",
     )
-    
+
     logo = cloudinary.models.CloudinaryField(
         "brand_logo",
         blank=True,
@@ -47,7 +51,7 @@ class EventBrand(UIDMixin, TimeStampedModel):
         db_index=True,
         blank=True,
     )
-    
+
     portfolio_link = models.URLField(
         blank=True,
         null=True,
@@ -60,31 +64,33 @@ class EventBrand(UIDMixin, TimeStampedModel):
         help_text="Timestamp of the last brand_name change.",
     )
 
-    whatsapp_number = models.CharField(max_length=30)
-
-    division = models.CharField(
+    whatsapp_number = models.CharField(
         max_length=30,
-        choices=DIVISION_CHOICES,
-        db_index=True,
-        blank=True,
-        null=True,
-        help_text="Division this brand primarily operates in.",
     )
 
-    district = models.CharField(
-        max_length=50,
-        db_index=True,
+    division = ArrayField(
+        base_field=models.CharField(
+            max_length=30,
+            choices=DIVISION_CHOICES,
+        ),
+        default=list,
         blank=True,
-        null=True,
-        help_text="District this brand primarily operates in.",
+        help_text="Divisions where this brand operates.",
     )
     
+    office_address = models.TextField(
+        max_length=500,
+        blank=True,
+        null=True,
+        help_text="Optional office or business address.",
+    )
+
     short_description = models.TextField(
         max_length=500,
         blank=True,
         null=True,
     )
-    
+
     rating_sum = models.PositiveBigIntegerField(
         default=0,
         editable=False,
@@ -99,8 +105,12 @@ class EventBrand(UIDMixin, TimeStampedModel):
         verbose_name = "Event Brand"
         verbose_name_plural = "Event Brands"
         ordering = ["-created_at"]
+
         indexes = [
-            models.Index(fields=["division", "district"]),
+            GinIndex(
+                fields=["division"],
+                name="eventbrand_divisions_gin",
+            ),
         ]
 
     def __str__(self):
@@ -125,9 +135,16 @@ class EventBrand(UIDMixin, TimeStampedModel):
             base_slug = slugify(self.brand_name)
             slug = base_slug
             counter = 1
-            while EventBrand.objects.exclude(pk=self.pk).filter(slug=slug).exists():
+
+            while (
+                EventBrand.objects
+                .exclude(pk=self.pk)
+                .filter(slug=slug)
+                .exists()
+            ):
                 slug = f"{base_slug}-{counter}"
                 counter += 1
+
             self.slug = slug
 
         super().save(*args, **kwargs)
@@ -144,17 +161,30 @@ class EventBrand(UIDMixin, TimeStampedModel):
         if hasattr(self.logo, "size"):
             validate_image_size(self.logo)
 
-        if self.division and self.district:
-            valid_districts = DIVISION_DISTRICTS.get(self.division, [])
-            if self.district not in valid_districts:
+        if self.division:
+            if len(self.division) != len(set(self.division)):
                 raise ValidationError(
-                    {"district": f"{self.district} is not a district of {self.division.title()} division."}
+                    {
+                        "division": "Duplicate divisions are not allowed."
+                    }
                 )
-                
+
+            if (
+                "whole_bangladesh" in self.division
+                and len(self.division) > 1
+            ):
+                raise ValidationError(
+                    {
+                        "division": (
+                            "Whole Bangladesh cannot be selected "
+                            "together with individual divisions."
+                        )
+                    }
+                )
+
     @property
     def rating_count(self):
         return self.review_count
-
 
     @property
     def average_rating(self):
@@ -176,13 +206,22 @@ class EventBrandSlugHistory(models.Model):
         on_delete=models.CASCADE,
         related_name="slug_history",
     )
-    old_slug = models.SlugField(max_length=255, db_index=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+
+    old_slug = models.SlugField(
+        max_length=255,
+        db_index=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
 
     class Meta:
         ordering = ["-created_at"]
-        # Prevent duplicate history entries for the same (brand, old_slug)
-        unique_together = [("brand", "old_slug")]
+
+        unique_together = [
+            ("brand", "old_slug"),
+        ]
 
     def __str__(self):
         return f"{self.old_slug} → {self.brand.slug}"

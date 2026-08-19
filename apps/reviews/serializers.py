@@ -429,17 +429,15 @@ class ReviewCreateSerializer(
                     data={
                         "review_id": str(review.id),
                         "hire_id": str(hire.id),
-
-                        # Service page routing
                         "service_id": str(hire.service_id),
                         "service_name": hire.service.service_name,
                         "brand_slug": hire.service.brand.slug,
-
-                        # Optional useful information
                         "brand_id": str(hire.service.brand_id),
                         "rating": str(review.stars),
                     },
                 )
+
+                return review
 
         except Hire.DoesNotExist as error:
             raise serializers.ValidationError({

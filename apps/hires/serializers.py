@@ -345,8 +345,8 @@ class BrandSummarySerializer(serializers.ModelSerializer):
             "brand_name",
             "logo",
             "whatsapp_number",
-            "district",
             "division",
+            "office_address",
         ]
 
         read_only_fields = fields

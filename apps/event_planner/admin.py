@@ -16,10 +16,9 @@ class EventBrandAdmin(admin.ModelAdmin):
         "brand_name",
         "seller",
         "division",
-        "district",
         "created_at",
     ]
-    list_filter = ["division", "district"]
+    list_filter = ["division"]
     search_fields = [
         "brand_name",
         "seller__email",
@@ -41,7 +40,7 @@ class EventBrandAdmin(admin.ModelAdmin):
             "fields": ("seller", "brand_name", "slug", "logo")
         }),
         ("Location", {
-            "fields": ("division", "district")
+            "fields": ("division",)
         }),
         ("Contact & Details", {
             "fields": ("whatsapp_number", "short_description")

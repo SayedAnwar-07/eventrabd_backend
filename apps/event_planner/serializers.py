@@ -10,7 +10,7 @@ from apps.event_planner.utils import validate_image_size
 from apps.users.models import User
 from .models import EventBrand
 from apps.event_services.models import EventService, ServiceGalleryImage, COVER_PHOTO_ONLY_SERVICE_TYPES
-from apps.event_planner.constants import DIVISION_CHOICES, DIVISION_DISTRICTS
+from apps.event_planner.constants import DIVISION_CHOICES
 import re
 from django.utils.text import slugify
 
@@ -28,7 +28,6 @@ class SellerInfoSerializer(serializers.ModelSerializer):
             "email",
             "profile_image_url",
             "contact_number",
-            "office_address",
         ]
 
         read_only_fields = fields
@@ -146,8 +145,13 @@ class EventBrandSerializer(serializers.ModelSerializer):
 
     logo_url = serializers.SerializerMethodField()
 
-    division = serializers.ChoiceField(choices=DIVISION_CHOICES)
-    district = serializers.CharField()
+    division = serializers.ListField(
+        child=serializers.ChoiceField(
+            choices=DIVISION_CHOICES,
+        ),
+        allow_empty=False,
+    )
+    
     display_name = serializers.CharField(max_length=255) 
     
     rating = serializers.DecimalField(
@@ -174,7 +178,7 @@ class EventBrandSerializer(serializers.ModelSerializer):
             "portfolio_link",
             "whatsapp_number",
             "division",
-            "district",
+            "office_address",
             "short_description",
             "rating",
             "rating_count",
@@ -236,7 +240,7 @@ class EventBrandSerializer(serializers.ModelSerializer):
         # punctuation (- & . ' ,) — no Bangla or other scripts
         if not re.match(r"^[A-Za-z0-9\s\-\&\.\',]+$", value):
             raise serializers.ValidationError(
-                "Brand name must be in English only. Other languages are not allowed."
+                "Brand username must be in English only. Other languages are not allowed."
             )
 
         if self.instance and self.instance.brand_name != value:
@@ -296,16 +300,6 @@ class EventBrandSerializer(serializers.ModelSerializer):
 
         return value
 
-    def validate_district(self, value):
-        # Case-insensitive match against the canonical district name so that
-        # "dhaka" / "DHAKA" / "Dhaka" all resolve the same way.
-        for districts in DIVISION_DISTRICTS.values():
-            for district in districts:
-                if district.lower() == value.strip().lower():
-                    return district
-
-        raise serializers.ValidationError(f"{value} is not a recognized district.")
-
     def validate(self, attrs):
         request = self.context.get("request")
 
@@ -315,15 +309,29 @@ class EventBrandSerializer(serializers.ModelSerializer):
                     {"non_field_errors": "You already have a brand."}
                 )
 
-        division = attrs.get("division", getattr(self.instance, "division", None))
-        district = attrs.get("district", getattr(self.instance, "district", None))
+        division = attrs.get(
+            "division",
+            getattr(self.instance, "division", []),
+        )
 
-        if division and district:
-            valid_districts = DIVISION_DISTRICTS.get(division, [])
-            if district not in valid_districts:
+        if division:
+            if len(division) != len(set(division)):
                 raise serializers.ValidationError(
                     {
-                        "district": f"{district} is not a district of {division.title()} division."
+                        "division": "Duplicate divisions are not allowed."
+                    }
+                )
+
+            if (
+                "whole_bangladesh" in division
+                and len(division) > 1
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "division": (
+                            "Whole Bangladesh cannot be selected "
+                            "together with individual divisions."
+                        )
                     }
                 )
 
@@ -388,7 +396,7 @@ class EventBrandListSerializer(serializers.ModelSerializer):
             "logo_url",
             "whatsapp_number",
             "division",
-            "district",
+            "office_address",
             "short_description",
             "rating",
             "rating_count",
