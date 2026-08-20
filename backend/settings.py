@@ -163,8 +163,15 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 if DATABASE_URL:
     DATABASES = {
-        "default": dj_database_url.parse(DATABASE_URL, conn_max_age=600, ssl_require=True)
+        "default": dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=0,
+            ssl_require=True,
+        )
     }
+
+    DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
+
 else:
     DATABASES = {
         "default": {
@@ -174,6 +181,8 @@ else:
             "PASSWORD": os.getenv("DB_PASSWORD", ""),
             "HOST": os.getenv("DB_HOST", "localhost"),
             "PORT": os.getenv("DB_PORT", "5432"),
+            "CONN_MAX_AGE": 0,
+            "CONN_HEALTH_CHECKS": True,
         }
     }
 

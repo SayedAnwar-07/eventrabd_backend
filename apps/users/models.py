@@ -78,9 +78,6 @@ class User(UIDMixin, TimeStampedModel, AbstractBaseUser, PermissionsMixin):
     contact_number = models.CharField(max_length=30, blank=True, null=True)
     whatsapp_number = models.CharField(max_length=30, blank=True, null=True)
 
-    office_address = models.TextField(blank=True, null=True)
-    service_area = models.CharField(max_length=255, blank=True, null=True)
-
     # Auth tokens
     access_token = models.TextField(blank=True, null=True)
     refresh_token = models.TextField(blank=True, null=True)

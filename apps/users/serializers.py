@@ -83,11 +83,6 @@ class RegisterSerializer(serializers.ModelSerializer):
         allow_blank=True,
     )
 
-    service_area = serializers.CharField(
-        required=False,
-        allow_blank=True,
-    )
-
     contact_number = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -121,7 +116,6 @@ class RegisterSerializer(serializers.ModelSerializer):
             "password",
             "confirm_password",
             "role",
-            "service_area",
             "contact_number",
             "whatsapp_number",
             "terms_accept",
@@ -179,12 +173,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
         if role == "seller":
             errors = {}
-
-            if not data.get("service_area", "").strip():
-                errors["service_area"] = (
-                    "Service area is required for sellers."
-                )
-
+            
             if not data.get("contact_number", "").strip():
                 errors["contact_number"] = (
                     "Contact number is required for sellers."
@@ -205,7 +194,6 @@ class RegisterSerializer(serializers.ModelSerializer):
         password = validated_data.pop("password")
 
         for field in (
-            "service_area",
             "whatsapp_number",
             "contact_number",
         ):
@@ -541,8 +529,6 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "profile_image_url",
             "contact_number",
             "whatsapp_number",
-            "office_address",
-            "service_area",
             "role",
             "terms_accept",
             "is_verified",
@@ -606,16 +592,9 @@ class UpdateProfileSerializer(serializers.ModelSerializer):
             "full_name",
             "username",
             "bio",
-
-            # CHANGE:
-            # "profile_image_url"
-            # TO:
             "profile_image",
-
             "contact_number",
             "whatsapp_number",
-            "office_address",
-            "service_area",
         ]
 
 
@@ -761,7 +740,6 @@ class AdminUserListSerializer(serializers.ModelSerializer):
             "role",
             "contact_number",
             "whatsapp_number",
-            "service_area",
             "is_verified",
             "is_staff",
             "created_at",
