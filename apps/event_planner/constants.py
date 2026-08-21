@@ -1,4 +1,5 @@
 DIVISION_CHOICES = [
+    ("whole_bangladesh", "Whole Bangladesh"),
     ("dhaka", "Dhaka"),
     ("chattogram", "Chattogram"),
     ("khulna", "Khulna"),
@@ -8,6 +9,7 @@ DIVISION_CHOICES = [
     ("sylhet", "Sylhet"),
     ("mymensingh", "Mymensingh"),
 ]
+
 
 DIVISION_VALUES = {
     value

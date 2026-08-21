@@ -203,17 +203,9 @@ class PublicEventServiceListView(
                 else:
 
                     queryset = queryset.filter(
-                        Q(
-                            brand__division__contains=[
-                                division
-                            ]
-                        )
-                        |
-                        Q(
-                            brand__division__contains=[
-                                "whole_bangladesh"
-                            ]
-                        )
+                        brand__division__contains=[
+                            division
+                        ]
                     )
 
 
