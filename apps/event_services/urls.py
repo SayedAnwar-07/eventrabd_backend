@@ -16,6 +16,10 @@ from apps.event_services.views.seller import (
     EventServiceUpdateView,
 )
 
+from apps.event_services.views.suggestions import (
+    SellerSuggestionView,
+    BrandSuggestionView,
+)
 
 urlpatterns = [
     # Public
@@ -33,6 +37,18 @@ urlpatterns = [
         "brands/<slug:brand_slug>/services/<str:service_id>/<str:service_name>/",
         EventServiceDetailView.as_view(),
         name="event-service-detail",
+    ),
+    
+    path(
+        "seller-suggestions/",
+        SellerSuggestionView.as_view(),
+        name="seller-suggestions",
+    ),
+
+    path(
+        "brand-suggestions/",
+        BrandSuggestionView.as_view(),
+        name="brand-suggestions",
     ),
 
     # Seller

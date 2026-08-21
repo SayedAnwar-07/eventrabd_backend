@@ -27,6 +27,7 @@ class EventType(models.TextChoices):
     RECEPTION = "reception", "Reception"
     ANNIVERSARY = "anniversary", "Anniversary"
     BIRTHDAY = "birthday", "Birthday"
+    OTHERS = "others", "Others"
 
 
 class Hire(UIDMixin, TimeStampedModel):

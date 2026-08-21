@@ -80,6 +80,7 @@ class PublicEventServiceListView(
     )
 
     def get_queryset(self):
+
         queryset = (
             EventService.objects
             .select_related(
@@ -101,27 +102,64 @@ class PublicEventServiceListView(
             .order_by("-created_at")
         )
 
+
+        # =================================================
+        # Seller filter
+        # GET:
+        # /services/?seller_id=25
+        #
+        # Flow:
+        # Seller
+        #   ↓
+        # Brand
+        #   ↓
+        # Services
+        # =================================================
+
+        seller_id = (
+            self.request
+            .query_params
+            .get("seller_id")
+        )
+
+        if seller_id:
+            queryset = queryset.filter(
+                brand__seller_id=seller_id
+            )
+
+
+        # =================================================
+        # Brand filter
+        # GET:
+        # /services/?brand_id=10
+        #
+        # Flow:
+        # Brand
+        #   ↓
+        # Services
+        # =================================================
+
+        brand_id = (
+            self.request
+            .query_params
+            .get("brand_id")
+        )
+
+        if brand_id:
+            queryset = queryset.filter(
+                brand_id=brand_id
+            )
+
+
+        # =================================================
+        # Service type filter
+        # =================================================
+
         service_type = (
             self.request
             .query_params
             .get("service_type")
         )
-
-        search = (
-            self.request
-            .query_params
-            .get("search")
-        )
-
-        division = (
-            self.request
-            .query_params
-            .get("division")
-        )
-
-        # -------------------------------------------------
-        # Service type filter
-        # -------------------------------------------------
 
         if service_type:
             service_type = (
@@ -134,9 +172,16 @@ class PublicEventServiceListView(
                 service_name__iexact=service_type
             )
 
-        # -------------------------------------------------
+
+        # =================================================
         # Division filter
-        # -------------------------------------------------
+        # =================================================
+
+        division = (
+            self.request
+            .query_params
+            .get("division")
+        )
 
         if division:
             division = (
@@ -146,21 +191,17 @@ class PublicEventServiceListView(
             )
 
             if division in DIVISION_VALUES:
-                # If user selects Whole Bangladesh,
-                # only brands explicitly serving
-                # Whole Bangladesh are returned.
+
                 if division == "whole_bangladesh":
+
                     queryset = queryset.filter(
                         brand__division__contains=[
                             "whole_bangladesh"
                         ]
                     )
 
-                # If user selects a specific division,
-                # include:
-                # 1. brands serving that division
-                # 2. brands serving Whole Bangladesh
                 else:
+
                     queryset = queryset.filter(
                         Q(
                             brand__division__contains=[
@@ -175,11 +216,19 @@ class PublicEventServiceListView(
                         )
                     )
 
-        # -------------------------------------------------
-        # Search
-        # -------------------------------------------------
+
+        # =================================================
+        # General search
+        # =================================================
+
+        search = (
+            self.request
+            .query_params
+            .get("search")
+        )
 
         if search:
+
             search = search.strip()
 
             search_query = (
@@ -208,20 +257,26 @@ class PublicEventServiceListView(
                 )
             )
 
+
             normalized_search = (
                 search
                 .lower()
                 .replace(" ", "_")
             )
 
+
             if normalized_search in DIVISION_VALUES:
+
                 if normalized_search == "whole_bangladesh":
+
                     search_query |= Q(
                         brand__division__contains=[
                             "whole_bangladesh"
                         ]
                     )
+
                 else:
+
                     search_query |= (
                         Q(
                             brand__division__contains=[
@@ -236,9 +291,11 @@ class PublicEventServiceListView(
                         )
                     )
 
+
             queryset = queryset.filter(
                 search_query
             )
+
 
         return queryset
 

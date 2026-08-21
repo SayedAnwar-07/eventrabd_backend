@@ -66,11 +66,10 @@ class UserAdmin(BaseUserAdmin):
             "fields": ("email", "password", "full_name", "username", "slug", "role")
         }),
         ("Profile Image", {
-            "fields": ("profile_image_tag", "profile_image_url"),
+            "fields": ("profile_image_tag", "profile_image"),
         }),
         ("Personal Info", {
-            "fields": ("contact_number", "whatsapp_number", "office_address", "service_area",
-                       "bio")
+            "fields": ("contact_number", "whatsapp_number", "bio")
         }),
         ("Status", {
             "fields": ("is_active", "is_verified", "is_staff", "is_superuser"),

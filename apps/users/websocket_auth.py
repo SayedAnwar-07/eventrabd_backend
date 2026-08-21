@@ -11,17 +11,24 @@ def get_user_from_token(token):
     from django.contrib.auth.models import AnonymousUser
 
     try:
-        validated_token = JWTAuthentication().get_validated_token(
-            token
+        jwt_auth = JWTAuthentication()
+
+        validated_token = jwt_auth.get_validated_token(token)
+
+        user = jwt_auth.get_user(validated_token)
+
+        token_version = validated_token.get(
+            "token_version",
+            -1
         )
 
-        user = JWTAuthentication().get_user(
-            validated_token
-        )
+        if token_version != user.token_version:
+            return AnonymousUser()
 
         return user
 
-    except Exception:
+    except Exception as e:
+        print("WS AUTH ERROR:", e)
         return AnonymousUser()
 
 
