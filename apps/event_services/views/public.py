@@ -184,11 +184,8 @@ class PublicEventServiceListView(
         )
 
         if division:
-            division = (
-                division
-                .strip()
-                .lower()
-            )
+
+            division = division.strip().lower()
 
             if division in DIVISION_VALUES:
 
@@ -203,10 +200,18 @@ class PublicEventServiceListView(
                 else:
 
                     queryset = queryset.filter(
-                        brand__division__contains=[
-                            division
-                        ]
-                    )
+                        Q(
+                            brand__division__contains=[
+                                division
+                            ]
+                        )
+                        |
+                        Q(
+                            brand__division__contains=[
+                                "whole_bangladesh"
+                            ]
+                        )
+                    ).distinct()
 
 
         # =================================================
