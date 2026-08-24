@@ -22,20 +22,16 @@ from .views import (
 
 
 urlpatterns = [
-    # =========================================================================
-    # CSRF
-    # =========================================================================
 
+    # CSRF
     path(
         "csrf/",
         CsrfTokenView.as_view(),
         name="csrf-token",
     ),
 
-    # =========================================================================
-    # Authentication
-    # =========================================================================
 
+    # Authentication
     path(
         "register/",
         RegisterView.as_view(),
@@ -60,25 +56,16 @@ urlpatterns = [
         name="admin-login",
     ),
 
-    # =========================================================================
-    # HttpOnly Cookie Token Refresh
-    #
-    # Final API:
-    # POST /users/token/refresh/
-    #
-    # Both normal users and admins use this same refresh endpoint.
-    # =========================================================================
 
+    # Token refresh
     path(
         "token/refresh/",
         CookieTokenRefreshView.as_view(),
         name="token-refresh",
     ),
 
-    # =========================================================================
-    # Logout
-    # =========================================================================
 
+    # Logout
     path(
         "logout/",
         LogoutView.as_view(),
@@ -91,10 +78,8 @@ urlpatterns = [
         name="logout-all",
     ),
 
-    # =========================================================================
-    # Password
-    # =========================================================================
 
+    # Password
     path(
         "forgot-password/",
         ForgotPasswordView.as_view(),
@@ -107,10 +92,8 @@ urlpatterns = [
         name="reset-password",
     ),
 
-    # =========================================================================
-    # Admin
-    # =========================================================================
 
+    # Admin
     path(
         "amar-admin/me/",
         AdminProfileView.as_view(),
@@ -135,28 +118,16 @@ urlpatterns = [
         name="admin-user-delete",
     ),
 
-    # =========================================================================
-    # Current User
-    # =========================================================================
 
+    # Current user
     path(
         "me/",
         MyProfileView.as_view(),
         name="my-profile",
     ),
 
-    # =========================================================================
-    # Dynamic Slug Routes
-    #
-    # Must remain LAST so values such as:
-    # csrf
-    # login
-    # token
-    # amar-admin
-    #
-    # are not accidentally interpreted as a user slug.
-    # =========================================================================
 
+    # Public profile (keep last)
     path(
         "<slug:slug>/settings/",
         UpdateProfileView.as_view(),
@@ -168,4 +139,5 @@ urlpatterns = [
         ProfileView.as_view(),
         name="public-profile",
     ),
+
 ]

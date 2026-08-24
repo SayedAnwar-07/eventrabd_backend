@@ -9,20 +9,22 @@ class NotificationConsumer(
 
         user = self.scope["user"]
 
+        # Reject unauthenticated users
         if not user.is_authenticated:
             await self.close()
             return
 
-        self.group_name = (
-            f"user_{user.id}"
-        )
+        self.group_name = f"user_{user.id}"
 
+        # Accept connection first
+        # Frontend gets "WebSocket connected" faster
+        await self.accept()
+
+        # Then join notification group
         await self.channel_layer.group_add(
             self.group_name,
             self.channel_name,
         )
-
-        await self.accept()
 
 
     async def disconnect(
@@ -30,10 +32,8 @@ class NotificationConsumer(
         close_code,
     ):
 
-        if hasattr(
-            self,
-            "group_name",
-        ):
+        if hasattr(self, "group_name"):
+
             await self.channel_layer.group_discard(
                 self.group_name,
                 self.channel_name,
@@ -48,9 +48,11 @@ class NotificationConsumer(
         await self.send_json(
             {
                 "type": "notification",
+
                 "notification_id": event[
                     "notification_id"
                 ],
+
                 "notification_type": event[
                     "notification_type"
                 ],

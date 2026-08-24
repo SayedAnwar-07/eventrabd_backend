@@ -141,10 +141,11 @@ TEMPLATES = [
 WSGI_APPLICATION = "backend.wsgi.application"
 ASGI_APPLICATION = "backend.asgi.application"
 
-# CHANNELS
+# CHANNELS / WEBSOCKET REDIS CONFIG
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
+
         "CONFIG": {
             "hosts": [
                 os.getenv(
@@ -152,10 +153,15 @@ CHANNEL_LAYERS = {
                     "redis://localhost:6379/1",
                 )
             ],
+
+            # Improves connection reuse
+            "capacity": 1500,
+
+            # Message expiry time
+            "expiry": 10,
         },
     },
 }
-
 
 # ── DATABASE CONFIG ───────────────────────────────
 
@@ -252,15 +258,24 @@ REST_FRAMEWORK = {
 
 # SIMPLE JWT
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=10),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+
     "ROTATE_REFRESH_TOKENS": True,
+
     "BLACKLIST_AFTER_ROTATION": True,
+
     "UPDATE_LAST_LOGIN": True,
+
     "ALGORITHM": "HS256",
+
     "SIGNING_KEY": SECRET_KEY,
+
     "AUTH_HEADER_TYPES": ("Bearer",),
+
     "USER_ID_FIELD": "id",
+
     "USER_ID_CLAIM": "user_id",
 }
 
