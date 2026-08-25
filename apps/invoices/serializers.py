@@ -1593,6 +1593,13 @@ class InvoiceCustomerDecisionSerializer(
                 )
 
                 locked_invoice.save()
+                
+                create_invoice_updated_notification(
+                    invoice=locked_invoice,
+                    changed_fields=[
+                        "customer_agreed"
+                    ],
+                )
 
                 if customer_agreed:
                     locked_hire.status = (
