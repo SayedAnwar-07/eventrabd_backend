@@ -8,11 +8,16 @@ from .auth import (
     VerifyOtpView,
     LoginView,
     AdminLoginView,
-    CookieTokenRefreshView,
+    ClientTokenRefreshView,
+    AdminTokenRefreshView,
     ForgotPasswordView,
     ResetPasswordView,
     LogoutView,
     LogoutAllView,
+    AdminLogoutView,
+    AdminLogoutAllView,
+    AdminForgotPasswordView,
+    AdminResetPasswordView,
 )
 
 
@@ -38,4 +43,5 @@ from .admin import (
     AdminSellerListView,
     AdminCustomerListView,
     AdminUserDeleteView,
+    AdminProfileUpdateView,
 )

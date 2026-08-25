@@ -25,6 +25,8 @@ from apps.users.serializers import (
     ResetPasswordSerializer,
     UserProfileSerializer,
     VerifyOtpSerializer,
+    AdminForgotPasswordSerializer,
+    AdminResetPasswordSerializer
 )
 
 from apps.users.throttles import (
@@ -42,11 +44,15 @@ from apps.users.utils import get_tokens_for_user
 # ─────────────────────────────────────────────
 
 
-def set_refresh_cookie(response, refresh_token):
+def set_refresh_cookie(
+    response,
+    refresh_token,
+    cookie_name,
+):
 
     response.set_cookie(
 
-        key=settings.REFRESH_TOKEN_COOKIE_NAME,
+        key=cookie_name,
 
         value=refresh_token,
 
@@ -66,11 +72,14 @@ def set_refresh_cookie(response, refresh_token):
 
 
 
-def delete_refresh_cookie(response):
+def delete_refresh_cookie(
+    response,
+    cookie_name,
+):
 
     response.delete_cookie(
 
-        key=settings.REFRESH_TOKEN_COOKIE_NAME,
+        key=cookie_name,
 
         path=settings.REFRESH_TOKEN_COOKIE_PATH,
 
@@ -92,7 +101,7 @@ def prevent_token_cache(response):
 
 
 
-def invalid_refresh_response():
+def invalid_refresh_response(cookie_name):
 
     response = Response(
 
@@ -106,7 +115,10 @@ def invalid_refresh_response():
     )
 
 
-    delete_refresh_cookie(response)
+    delete_refresh_cookie(
+        response,
+        cookie_name,
+    )
 
 
     return prevent_token_cache(response)
@@ -155,7 +167,6 @@ class CsrfTokenView(generics.GenericAPIView):
 # Register
 # ─────────────────────────────────────────────
 
-
 class RegisterView(generics.CreateAPIView):
 
     serializer_class = RegisterSerializer
@@ -168,12 +179,9 @@ class RegisterView(generics.CreateAPIView):
 
 
 
-
-
 # ─────────────────────────────────────────────
 # Verify OTP
 # ─────────────────────────────────────────────
-
 
 class VerifyOtpView(generics.GenericAPIView):
 
@@ -232,11 +240,9 @@ class VerifyOtpView(generics.GenericAPIView):
 
 
         set_refresh_cookie(
-
             response,
-
             tokens["refresh"],
-
+            settings.CLIENT_REFRESH_TOKEN_COOKIE_NAME,
         )
 
 
@@ -244,12 +250,9 @@ class VerifyOtpView(generics.GenericAPIView):
 
 
 
-
-
 # ─────────────────────────────────────────────
 # Normal Login
 # ─────────────────────────────────────────────
-
 
 class LoginView(generics.GenericAPIView):
 
@@ -326,6 +329,8 @@ class LoginView(generics.GenericAPIView):
 
             tokens["refresh"],
 
+            settings.CLIENT_REFRESH_TOKEN_COOKIE_NAME,
+
         )
 
 
@@ -333,12 +338,9 @@ class LoginView(generics.GenericAPIView):
 
 
 
-
-
 # ─────────────────────────────────────────────
 # Admin Login
 # ─────────────────────────────────────────────
-
 
 class AdminLoginView(generics.GenericAPIView):
 
@@ -399,6 +401,8 @@ class AdminLoginView(generics.GenericAPIView):
 
             tokens["refresh"],
 
+            settings.ADMIN_REFRESH_TOKEN_COOKIE_NAME,
+
         )
 
 
@@ -406,14 +410,11 @@ class AdminLoginView(generics.GenericAPIView):
 
 
 
-
-
 # ─────────────────────────────────────────────
 # Refresh Token
 # ─────────────────────────────────────────────
 
-
-class CookieTokenRefreshView(generics.GenericAPIView):
+class ClientTokenRefreshView(generics.GenericAPIView):
 
     permission_classes = [
         AllowAny
@@ -422,31 +423,26 @@ class CookieTokenRefreshView(generics.GenericAPIView):
     authentication_classes = []
 
 
-
     def post(self, request):
 
         refresh_token = request.COOKIES.get(
-
-            settings.REFRESH_TOKEN_COOKIE_NAME
-
+            settings.CLIENT_REFRESH_TOKEN_COOKIE_NAME
         )
 
 
         if not refresh_token:
 
-            return invalid_refresh_response()
-
+            return invalid_refresh_response(
+                settings.CLIENT_REFRESH_TOKEN_COOKIE_NAME
+            )
 
 
         try:
 
             serializer = TokenRefreshSerializer(
-
                 data={
-                    "refresh":
-                    refresh_token
+                    "refresh": refresh_token
                 }
-
             )
 
 
@@ -455,50 +451,103 @@ class CookieTokenRefreshView(generics.GenericAPIView):
             )
 
 
-            new_access = serializer.validated_data["access"]
-
-
-
             response = Response(
-
                 {
                     "access":
-                    new_access
+                    serializer.validated_data["access"]
                 },
-
                 status=status.HTTP_200_OK,
-
             )
 
 
             if "refresh" in serializer.validated_data:
 
                 set_refresh_cookie(
-
                     response,
-
-                    serializer.validated_data["refresh"]
-
+                    serializer.validated_data["refresh"],
+                    settings.CLIENT_REFRESH_TOKEN_COOKIE_NAME,
                 )
-
 
 
             return prevent_token_cache(response)
 
 
+        except TokenError:
+
+            return invalid_refresh_response(
+                settings.CLIENT_REFRESH_TOKEN_COOKIE_NAME
+            )
+
+
+class AdminTokenRefreshView(generics.GenericAPIView):
+
+    permission_classes = [
+        AllowAny
+    ]
+
+    authentication_classes = []
+
+
+    def post(self, request):
+
+        refresh_token = request.COOKIES.get(
+            settings.ADMIN_REFRESH_TOKEN_COOKIE_NAME
+        )
+
+
+        if not refresh_token:
+
+            return invalid_refresh_response(
+                settings.ADMIN_REFRESH_TOKEN_COOKIE_NAME
+            )
+
+
+        try:
+
+            serializer = TokenRefreshSerializer(
+                data={
+                    "refresh": refresh_token
+                }
+            )
+
+
+            serializer.is_valid(
+                raise_exception=True
+            )
+
+
+            response = Response(
+                {
+                    "access":
+                    serializer.validated_data["access"]
+                },
+                status=status.HTTP_200_OK,
+            )
+
+
+            if "refresh" in serializer.validated_data:
+
+                set_refresh_cookie(
+                    response,
+                    serializer.validated_data["refresh"],
+                    settings.ADMIN_REFRESH_TOKEN_COOKIE_NAME,
+                )
+
+
+            return prevent_token_cache(response)
+
 
         except TokenError:
 
-            return invalid_refresh_response()
-
-
+            return invalid_refresh_response(
+                settings.ADMIN_REFRESH_TOKEN_COOKIE_NAME
+            )
 
 
 
 # ─────────────────────────────────────────────
 # Forgot Password
 # ─────────────────────────────────────────────
-
 
 class ForgotPasswordView(generics.GenericAPIView):
 
@@ -539,8 +588,6 @@ class ForgotPasswordView(generics.GenericAPIView):
             status=status.HTTP_200_OK,
 
         )
-
-
 
 
 
@@ -591,12 +638,9 @@ class ResetPasswordView(generics.GenericAPIView):
 
 
 
-
-
 # ─────────────────────────────────────────────
 # Logout Current Device
 # ─────────────────────────────────────────────
-
 
 class LogoutView(generics.GenericAPIView):
 
@@ -604,52 +648,75 @@ class LogoutView(generics.GenericAPIView):
         IsAuthenticated
     ]
 
-
-
     def post(self, request):
 
         refresh_token = request.COOKIES.get(
-
-            settings.REFRESH_TOKEN_COOKIE_NAME
-
+            settings.CLIENT_REFRESH_TOKEN_COOKIE_NAME
         )
 
-
         if refresh_token:
-
             try:
-
-                token = RefreshToken(
-                    refresh_token
-                )
-
+                token = RefreshToken(refresh_token)
                 token.blacklist()
 
-
             except TokenError:
-
                 pass
 
 
-
         response = Response(
-
             {
                 "message":
                 "Logged out successfully."
             },
-
             status=status.HTTP_200_OK,
-
         )
 
 
-        delete_refresh_cookie(response)
+        delete_refresh_cookie(
+            response,
+            settings.CLIENT_REFRESH_TOKEN_COOKIE_NAME,
+        )
 
 
         return prevent_token_cache(response)
+    
+class AdminLogoutView(generics.GenericAPIView):
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def post(self, request):
+
+        refresh_token = request.COOKIES.get(
+            settings.ADMIN_REFRESH_TOKEN_COOKIE_NAME
+        )
+
+        if refresh_token:
+            try:
+                token = RefreshToken(refresh_token)
+                token.blacklist()
+
+            except TokenError:
+                pass
 
 
+        response = Response(
+            {
+                "message":
+                "Admin logout successfully."
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+        delete_refresh_cookie(
+            response,
+            settings.ADMIN_REFRESH_TOKEN_COOKIE_NAME,
+        )
+
+
+        return prevent_token_cache(response)
 
 
 
@@ -657,41 +724,124 @@ class LogoutView(generics.GenericAPIView):
 # Logout All Devices
 # ─────────────────────────────────────────────
 
-
 class LogoutAllView(generics.GenericAPIView):
 
     permission_classes = [
         IsAuthenticated
     ]
 
-
-
     def post(self, request):
 
         User.objects.filter(
-
             id=request.user.id
-
         ).update(
-
             token_version=request.user.token_version + 1
-
         )
 
 
         response = Response(
-
             {
                 "message":
                 "Logged out from all devices."
             },
-
             status=status.HTTP_200_OK,
-
         )
 
 
-        delete_refresh_cookie(response)
+        delete_refresh_cookie(
+            response,
+            settings.CLIENT_REFRESH_TOKEN_COOKIE_NAME,
+        )
 
 
         return prevent_token_cache(response)
+    
+
+class AdminLogoutAllView(generics.GenericAPIView):
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def post(self, request):
+
+        User.objects.filter(
+            id=request.user.id
+        ).update(
+            token_version=request.user.token_version + 1
+        )
+
+
+        response = Response(
+            {
+                "message":
+                "Admin logged out from all devices."
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+        delete_refresh_cookie(
+            response,
+            settings.ADMIN_REFRESH_TOKEN_COOKIE_NAME,
+        )
+
+
+        return prevent_token_cache(response)
+    
+    
+class AdminForgotPasswordView(generics.GenericAPIView):
+
+    serializer_class = AdminForgotPasswordSerializer
+
+    permission_classes=[
+        AllowAny
+    ]
+
+    throttle_classes=[
+        PasswordResetRateThrottle
+    ]
+
+
+    def post(self,request):
+
+        serializer=self.get_serializer(
+            data=request.data
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        return Response(
+            serializer.validated_data
+        )
+
+
+class AdminResetPasswordView(generics.GenericAPIView):
+
+    serializer_class = AdminResetPasswordSerializer
+
+    permission_classes=[
+        AllowAny
+    ]
+
+    throttle_classes=[
+        PasswordResetRateThrottle
+    ]
+
+
+    def post(self,request):
+
+        serializer=self.get_serializer(
+            data=request.data
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+
+        return Response(
+            serializer.validated_data
+        )

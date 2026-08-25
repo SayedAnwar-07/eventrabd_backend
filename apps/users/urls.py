@@ -6,18 +6,24 @@ from .views import (
     AdminProfileView,
     AdminSellerListView,
     AdminUserDeleteView,
-    CookieTokenRefreshView,
+    ClientTokenRefreshView,
+    AdminTokenRefreshView,
     CsrfTokenView,
     ForgotPasswordView,
     LoginView,
     LogoutAllView,
     LogoutView,
+    AdminLogoutView,
+    AdminLogoutAllView,
     MyProfileView,
     ProfileView,
     RegisterView,
     ResetPasswordView,
     UpdateProfileView,
     VerifyOtpView,
+    AdminProfileUpdateView,
+    AdminForgotPasswordView,
+    AdminResetPasswordView,
 )
 
 
@@ -57,12 +63,25 @@ urlpatterns = [
     ),
 
 
-    # Token refresh
+    # ─────────────────────────────
+    # Token Refresh
+    # ─────────────────────────────
+
+    # Client (customer + seller)
     path(
         "token/refresh/",
-        CookieTokenRefreshView.as_view(),
-        name="token-refresh",
+        ClientTokenRefreshView.as_view(),
+        name="client-token-refresh",
     ),
+
+
+    # Admin
+    path(
+        "amar-admin/token/refresh/",
+        AdminTokenRefreshView.as_view(),
+        name="admin-token-refresh",
+    ),
+
 
 
     # Logout
@@ -78,6 +97,18 @@ urlpatterns = [
         name="logout-all",
     ),
 
+    path(
+        "amar-admin/logout/",
+        AdminLogoutView.as_view(),
+        name="admin-logout",
+    ),
+
+    path(
+        "amar-admin/logout/all/",
+        AdminLogoutAllView.as_view(),
+        name="admin-logout-all",
+    ),
+
 
     # Password
     path(
@@ -91,6 +122,7 @@ urlpatterns = [
         ResetPasswordView.as_view(),
         name="reset-password",
     ),
+
 
 
     # Admin
@@ -117,6 +149,27 @@ urlpatterns = [
         AdminUserDeleteView.as_view(),
         name="admin-user-delete",
     ),
+    
+    path(
+        "amar-admin/profile/update/",
+        AdminProfileUpdateView.as_view(),
+        name="admin-profile-update",
+    ),
+
+
+    path(
+        "amar-admin/forgot-password/",
+        AdminForgotPasswordView.as_view(),
+        name="admin-forgot-password",
+    ),
+
+
+    path(
+        "amar-admin/reset-password/",
+        AdminResetPasswordView.as_view(),
+        name="admin-reset-password",
+    ),
+
 
 
     # Current user
@@ -127,7 +180,8 @@ urlpatterns = [
     ),
 
 
-    # Public profile (keep last)
+
+    # Public profile
     path(
         "<slug:slug>/settings/",
         UpdateProfileView.as_view(),

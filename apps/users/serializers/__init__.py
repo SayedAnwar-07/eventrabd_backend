@@ -29,4 +29,7 @@ from .admin import (
     AdminLoginSerializer,
     AdminProfileSerializer,
     AdminUserListSerializer,
+    AdminProfileUpdateSerializer,
+    AdminForgotPasswordSerializer,
+    AdminResetPasswordSerializer,
 )

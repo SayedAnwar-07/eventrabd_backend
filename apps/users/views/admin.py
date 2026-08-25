@@ -4,7 +4,7 @@ from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-
+from rest_framework.response import Response
 from apps.users.models import User
 
 from apps.users.permissions import IsAdminUserOnly
@@ -12,6 +12,7 @@ from apps.users.permissions import IsAdminUserOnly
 from apps.users.serializers import (
     AdminProfileSerializer,
     AdminUserListSerializer,
+    AdminProfileUpdateSerializer,
 )
 
 
@@ -19,7 +20,6 @@ from apps.users.serializers import (
 # ─────────────────────────────────────────────
 # Admin Profile
 # ─────────────────────────────────────────────
-
 
 class AdminProfileView(generics.RetrieveAPIView):
 
@@ -37,12 +37,40 @@ class AdminProfileView(generics.RetrieveAPIView):
 
 
 
+class AdminProfileUpdateView(generics.UpdateAPIView):
+
+    serializer_class = AdminProfileUpdateSerializer
+    permission_classes = [
+        IsAuthenticated,
+        IsAdminUserOnly,
+    ]
+
+    def get_object(self):
+
+        return self.request.user
+
+    def update(self, request, *args, **kwargs):
+
+        super().update(
+            request,
+            *args,
+            **kwargs
+        )
+
+        user = self.get_object()
+
+        return Response(
+            {
+                "message": "Profile updated successfully",
+
+                "user": AdminProfileSerializer(user).data,
+            }
+        )
 
 
 # ─────────────────────────────────────────────
 # Admin Seller List
 # ─────────────────────────────────────────────
-
 
 class AdminSellerListView(generics.ListAPIView):
 
@@ -67,13 +95,9 @@ class AdminSellerListView(generics.ListAPIView):
         )
 
 
-
-
-
 # ─────────────────────────────────────────────
 # Admin Customer List
 # ─────────────────────────────────────────────
-
 
 class AdminCustomerListView(generics.ListAPIView):
 
@@ -98,13 +122,9 @@ class AdminCustomerListView(generics.ListAPIView):
         )
 
 
-
-
-
 # ─────────────────────────────────────────────
 # Admin Delete User
 # ─────────────────────────────────────────────
-
 
 class AdminUserDeleteView(generics.DestroyAPIView):
 

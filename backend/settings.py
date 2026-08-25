@@ -279,23 +279,35 @@ SIMPLE_JWT = {
     "USER_ID_CLAIM": "user_id",
 }
 
-# ── REFRESH TOKEN HTTPONLY COOKIE ──────────────────────────────────────────────
+# ── REFRESH TOKEN HTTPONLY COOKIES ────────────────────────────────────────────
 
-REFRESH_TOKEN_COOKIE_NAME = "eventrabd_refresh"
+CLIENT_REFRESH_TOKEN_COOKIE_NAME = (
+    "eventrabd_client_site_refresh"
+)
+
+ADMIN_REFRESH_TOKEN_COOKIE_NAME = (
+    "eventrabd_admin_site_refresh"
+)
+
+
 REFRESH_TOKEN_COOKIE_PATH = "/"
+
 REFRESH_TOKEN_COOKIE_DOMAIN = None
 
 REFRESH_TOKEN_COOKIE_HTTPONLY = True
+
 
 # Local: False
 # Production: True
 REFRESH_TOKEN_COOKIE_SECURE = not DEBUG
 
-# Local frontend/backend on localhost = Lax
-# Netlify frontend + Render backend = None
+
+# Localhost = Lax
+# Production frontend + backend = None
 REFRESH_TOKEN_COOKIE_SAMESITE = (
     "Lax" if DEBUG else "None"
 )
+
 
 REFRESH_TOKEN_COOKIE_MAX_AGE = int(
     SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds()
