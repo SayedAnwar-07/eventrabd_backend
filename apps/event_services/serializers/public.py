@@ -2,7 +2,9 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
-from apps.event_planner.models import EventBrand
+from apps.event_planner.models import (
+    EventBrand,
+)
 
 from apps.event_services.models import (
     EventService,
@@ -192,6 +194,7 @@ class PublicServiceBrandSerializer(
             Decimal("0.01")
         )
 
+
 # =========================================================
 # Public service card
 # =========================================================
@@ -293,7 +296,19 @@ class PublicEventServiceCardSerializer(
         ):
             return []
 
+        images = getattr(
+            obj,
+            "prefetched_gallery_images",
+            None,
+        )
+
+        # Defensive fallback.
+        # Public list view should already provide
+        # prefetched_gallery_images.
+        if images is None:
+            images = obj.gallery_images.all()
+
         return ServiceGalleryImageSerializer(
-            obj.gallery_images.all(),
+            images,
             many=True,
         ).data

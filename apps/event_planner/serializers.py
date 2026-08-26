@@ -13,6 +13,9 @@ from apps.event_services.models import EventService, ServiceGalleryImage, COVER_
 from apps.event_planner.constants import DIVISION_CHOICES
 import re
 from django.utils.text import slugify
+from apps.event_services.serializers.common import (
+    ServiceGalleryImageSerializer,
+)
 
 
 class SellerInfoSerializer(serializers.ModelSerializer):
@@ -117,14 +120,29 @@ class BrandServiceSerializer(serializers.ModelSerializer):
         except Exception:
             return None
 
-    def get_gallery_images(self, obj):
-        if obj.service_name in COVER_PHOTO_ONLY_SERVICE_TYPES:
-            return []
+    def get_gallery_images(
+            self,
+            obj,
+        ):
+            if (
+                obj.service_name
+                in COVER_PHOTO_ONLY_SERVICE_TYPES
+            ):
+                return []
 
-        return BrandGalleryImageSerializer(
-            obj.gallery_images.all().order_by("sort_order", "-created_at"),
-            many=True,
-        ).data
+            images = getattr(
+                obj,
+                "prefetched_gallery_images",
+                None,
+            )
+
+            if images is None:
+                images = obj.gallery_images.all()
+
+            return ServiceGalleryImageSerializer(
+                images,
+                many=True,
+            ).data
 
     def get_image_limit(self, obj):
         return obj.image_limit

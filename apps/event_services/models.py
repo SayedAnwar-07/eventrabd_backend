@@ -107,15 +107,12 @@ class EventService(UIDMixin, TimeStampedModel):
         verbose_name = "Event Service"
         verbose_name_plural = "Event Services"
         ordering = ["-created_at"]
+
         constraints = [
             models.UniqueConstraint(
                 fields=["brand", "service_name"],
                 name="unique_service_name_per_brand",
             )
-        ]
-        indexes = [
-            models.Index(fields=["service_name"]),
-            models.Index(fields=["slug"]),
         ]
 
     def __str__(self):

@@ -40,10 +40,42 @@ class EventServicePagination(
     pagination.PageNumberPagination
 ):
     page_size = 12
-
     page_size_query_param = "page_size"
-
     max_page_size = 50
+
+
+# =========================================================
+# Shared public gallery prefetch
+# =========================================================
+
+
+def service_gallery_prefetch():
+    """
+    Load only fields required by
+    ServiceGalleryImageSerializer.
+
+    Using to_attr prevents serializer code from having
+    to access the related manager for the normal list path.
+    """
+
+    return Prefetch(
+        "gallery_images",
+        queryset=(
+            ServiceGalleryImage.objects
+            .only(
+                "id",
+                "service_id",
+                "image",
+                "sort_order",
+                "created_at",
+            )
+            .order_by(
+                "sort_order",
+                "-created_at",
+            )
+        ),
+        to_attr="prefetched_gallery_images",
+    )
 
 
 # =========================================================
@@ -80,40 +112,27 @@ class PublicEventServiceListView(
     )
 
     def get_queryset(self):
-
         queryset = (
             EventService.objects
+
+            # ForeignKey / OneToOne
             .select_related(
                 "brand",
                 "brand__seller",
             )
-            .prefetch_related(
-                Prefetch(
-                    "gallery_images",
-                    queryset=(
-                        ServiceGalleryImage.objects
-                        .order_by(
-                            "sort_order",
-                            "-created_at",
-                        )
-                    ),
-                )
-            )
-            .order_by("-created_at")
-        )
 
+            # Reverse ForeignKey
+            .prefetch_related(
+                service_gallery_prefetch()
+            )
+
+            .order_by(
+                "-created_at"
+            )
+        )
 
         # =================================================
         # Seller filter
-        # GET:
-        # /services/?seller_id=25
-        #
-        # Flow:
-        # Seller
-        #   ↓
-        # Brand
-        #   ↓
-        # Services
         # =================================================
 
         seller_id = (
@@ -127,16 +146,8 @@ class PublicEventServiceListView(
                 brand__seller_id=seller_id
             )
 
-
         # =================================================
         # Brand filter
-        # GET:
-        # /services/?brand_id=10
-        #
-        # Flow:
-        # Brand
-        #   ↓
-        # Services
         # =================================================
 
         brand_id = (
@@ -149,7 +160,6 @@ class PublicEventServiceListView(
             queryset = queryset.filter(
                 brand_id=brand_id
             )
-
 
         # =================================================
         # Service type filter
@@ -168,10 +178,11 @@ class PublicEventServiceListView(
                 .lower()
             )
 
+            # Exact lookup because our choice values
+            # and normalized input are already lowercase.
             queryset = queryset.filter(
-                service_name__iexact=service_type
+                service_name=service_type
             )
-
 
         # =================================================
         # Division filter
@@ -184,13 +195,14 @@ class PublicEventServiceListView(
         )
 
         if division:
-
-            division = division.strip().lower()
+            division = (
+                division
+                .strip()
+                .lower()
+            )
 
             if division in DIVISION_VALUES:
-
                 if division == "whole_bangladesh":
-
                     queryset = queryset.filter(
                         brand__division__contains=[
                             "whole_bangladesh"
@@ -198,7 +210,6 @@ class PublicEventServiceListView(
                     )
 
                 else:
-
                     queryset = queryset.filter(
                         Q(
                             brand__division__contains=[
@@ -211,8 +222,13 @@ class PublicEventServiceListView(
                                 "whole_bangladesh"
                             ]
                         )
-                    ).distinct()
+                    )
 
+                    # IMPORTANT:
+                    # No .distinct() needed here.
+                    #
+                    # EventService -> EventBrand is a
+                    # single-valued FK relationship.
 
         # =================================================
         # General search
@@ -225,7 +241,6 @@ class PublicEventServiceListView(
         )
 
         if search:
-
             search = search.strip()
 
             search_query = (
@@ -254,18 +269,20 @@ class PublicEventServiceListView(
                 )
             )
 
-
             normalized_search = (
                 search
                 .lower()
                 .replace(" ", "_")
             )
 
-
-            if normalized_search in DIVISION_VALUES:
-
-                if normalized_search == "whole_bangladesh":
-
+            if (
+                normalized_search
+                in DIVISION_VALUES
+            ):
+                if (
+                    normalized_search
+                    == "whole_bangladesh"
+                ):
                     search_query |= Q(
                         brand__division__contains=[
                             "whole_bangladesh"
@@ -273,7 +290,6 @@ class PublicEventServiceListView(
                     )
 
                 else:
-
                     search_query |= (
                         Q(
                             brand__division__contains=[
@@ -288,11 +304,9 @@ class PublicEventServiceListView(
                         )
                     )
 
-
             queryset = queryset.filter(
                 search_query
             )
-
 
         return queryset
 
@@ -318,7 +332,9 @@ class PublicEventServiceListView(
 class EventServiceListView(
     generics.ListAPIView
 ):
-    serializer_class = EventServiceSerializer
+    serializer_class = (
+        EventServiceSerializer
+    )
 
     permission_classes = [
         permissions.AllowAny,
@@ -340,21 +356,14 @@ class EventServiceListView(
                 "brand__seller",
             )
             .prefetch_related(
-                Prefetch(
-                    "gallery_images",
-                    queryset=(
-                        ServiceGalleryImage.objects
-                        .order_by(
-                            "sort_order",
-                            "-created_at",
-                        )
-                    ),
-                )
+                service_gallery_prefetch()
             )
             .filter(
                 brand__slug=brand_slug
             )
-            .order_by("-created_at")
+            .order_by(
+                "-created_at"
+            )
         )
 
         service_type = (
@@ -370,16 +379,18 @@ class EventServiceListView(
         )
 
         # -------------------------------------------------
-        # Service type filter
+        # Service type
         # -------------------------------------------------
 
         if service_type:
+            service_type = (
+                service_type
+                .strip()
+                .lower()
+            )
+
             queryset = queryset.filter(
-                service_name__iexact=(
-                    service_type
-                    .strip()
-                    .lower()
-                )
+                service_name=service_type
             )
 
         # -------------------------------------------------

@@ -45,8 +45,6 @@ class SellerSuggestionView(ListAPIView):
             )[:10]
         )
 
-        print("RESULT:", queryset.count())
-
         return queryset
 
 
