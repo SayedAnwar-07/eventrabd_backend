@@ -121,6 +121,7 @@ class PublicEventServiceListView(
 
         db_query_count = 0
         db_query_time = 0.0
+        query_number = 0
 
         # -----------------------------------------------------
         # Measure DB connection
@@ -135,7 +136,7 @@ class PublicEventServiceListView(
         )
 
         # -----------------------------------------------------
-        # Measure every SQL query
+        # Measure every SQL query separately
         # -----------------------------------------------------
 
         def query_timer(
@@ -147,6 +148,9 @@ class PublicEventServiceListView(
         ):
             nonlocal db_query_count
             nonlocal db_query_time
+            nonlocal query_number
+
+            query_number += 1
 
             query_start = perf_counter()
 
@@ -164,6 +168,13 @@ class PublicEventServiceListView(
 
                 db_query_count += 1
                 db_query_time += elapsed
+
+                logger.warning(
+                    "[SERVICES SQL %s] %.3f s | %s",
+                    query_number,
+                    elapsed,
+                    sql[:180].replace("\n", " "),
+                )
 
         with connection.execute_wrapper(
             query_timer
@@ -185,8 +196,6 @@ class PublicEventServiceListView(
 
             # ---------------------------------------------
             # Pagination
-            #
-            # This evaluates pagination COUNT query.
             # ---------------------------------------------
 
             pagination_start = perf_counter()
@@ -202,9 +211,6 @@ class PublicEventServiceListView(
 
             # ---------------------------------------------
             # Serialization
-            #
-            # Queryset + select_related + prefetch_related
-            # are evaluated around here.
             # ---------------------------------------------
 
             serialization_start = (
@@ -250,7 +256,7 @@ class PublicEventServiceListView(
         )
 
         # -----------------------------------------------------
-        # Render logs
+        # Summary log
         # -----------------------------------------------------
 
         logger.warning(
@@ -276,10 +282,6 @@ class PublicEventServiceListView(
             serialization_time,
             total_time,
         )
-
-        # -----------------------------------------------------
-        # Optional DevTools timing information
-        # -----------------------------------------------------
 
         response["Server-Timing"] = (
             f'dbconnect;dur={connection_time * 1000:.1f}, '
