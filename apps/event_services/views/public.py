@@ -1,3 +1,8 @@
+import logging
+from time import perf_counter
+
+from django.db import connection
+
 from django.db.models import Prefetch, Q
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import (
@@ -30,6 +35,7 @@ from apps.event_services.views.mixins import (
     EventServiceBaseQueryMixin,
 )
 
+logger = logging.getLogger(__name__)
 
 # =========================================================
 # Pagination
@@ -110,7 +116,182 @@ class PublicEventServiceListView(
     pagination_class = (
         EventServicePagination
     )
+    def list(self, request, *args, **kwargs):
+        total_start = perf_counter()
 
+        db_query_count = 0
+        db_query_time = 0.0
+
+        # -----------------------------------------------------
+        # Measure DB connection
+        # -----------------------------------------------------
+
+        connection_start = perf_counter()
+
+        connection.ensure_connection()
+
+        connection_time = (
+            perf_counter() - connection_start
+        )
+
+        # -----------------------------------------------------
+        # Measure every SQL query
+        # -----------------------------------------------------
+
+        def query_timer(
+            execute,
+            sql,
+            params,
+            many,
+            context,
+        ):
+            nonlocal db_query_count
+            nonlocal db_query_time
+
+            query_start = perf_counter()
+
+            try:
+                return execute(
+                    sql,
+                    params,
+                    many,
+                    context,
+                )
+            finally:
+                elapsed = (
+                    perf_counter() - query_start
+                )
+
+                db_query_count += 1
+                db_query_time += elapsed
+
+        with connection.execute_wrapper(
+            query_timer
+        ):
+            # ---------------------------------------------
+            # Build queryset
+            # ---------------------------------------------
+
+            queryset_start = perf_counter()
+
+            queryset = self.filter_queryset(
+                self.get_queryset()
+            )
+
+            queryset_build_time = (
+                perf_counter()
+                - queryset_start
+            )
+
+            # ---------------------------------------------
+            # Pagination
+            #
+            # This evaluates pagination COUNT query.
+            # ---------------------------------------------
+
+            pagination_start = perf_counter()
+
+            page = self.paginate_queryset(
+                queryset
+            )
+
+            pagination_time = (
+                perf_counter()
+                - pagination_start
+            )
+
+            # ---------------------------------------------
+            # Serialization
+            #
+            # Queryset + select_related + prefetch_related
+            # are evaluated around here.
+            # ---------------------------------------------
+
+            serialization_start = (
+                perf_counter()
+            )
+
+            if page is not None:
+                serializer = self.get_serializer(
+                    page,
+                    many=True,
+                )
+
+                data = serializer.data
+
+                serialization_time = (
+                    perf_counter()
+                    - serialization_start
+                )
+
+                response = (
+                    self.get_paginated_response(
+                        data
+                    )
+                )
+
+            else:
+                serializer = self.get_serializer(
+                    queryset,
+                    many=True,
+                )
+
+                data = serializer.data
+
+                serialization_time = (
+                    perf_counter()
+                    - serialization_start
+                )
+
+                response = Response(data)
+
+        total_time = (
+            perf_counter() - total_start
+        )
+
+        # -----------------------------------------------------
+        # Render logs
+        # -----------------------------------------------------
+
+        logger.warning(
+            (
+                "\n"
+                "========== SERVICES PERFORMANCE ==========\n"
+                "Path: %s\n"
+                "DB connection: %.3f s\n"
+                "DB queries: %s\n"
+                "DB query time: %.3f s\n"
+                "Queryset build: %.3f s\n"
+                "Pagination: %.3f s\n"
+                "Serialization: %.3f s\n"
+                "Total view time: %.3f s\n"
+                "=========================================="
+            ),
+            request.get_full_path(),
+            connection_time,
+            db_query_count,
+            db_query_time,
+            queryset_build_time,
+            pagination_time,
+            serialization_time,
+            total_time,
+        )
+
+        # -----------------------------------------------------
+        # Optional DevTools timing information
+        # -----------------------------------------------------
+
+        response["Server-Timing"] = (
+            f'dbconnect;dur={connection_time * 1000:.1f}, '
+            f'db;dur={db_query_time * 1000:.1f}, '
+            f'paginate;dur={pagination_time * 1000:.1f}, '
+            f'serialize;dur={serialization_time * 1000:.1f}, '
+            f'view;dur={total_time * 1000:.1f}'
+        )
+
+        return response
+    
+    # -----------
     def get_queryset(self):
         queryset = (
             EventService.objects
