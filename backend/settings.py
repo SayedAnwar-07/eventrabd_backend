@@ -178,6 +178,9 @@ if DATABASE_URL:
 
     DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
 
+    # Required/recommended for transaction pooling
+    DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+
 else:
     DATABASES = {
         "default": {
