@@ -192,50 +192,72 @@ def calculate_service_price_from_slot_shifts(
     slot_shifts,
 ):
     """
-    Calculate invoice service price using the unit
-    price of each booking option.
+    Calculate invoice service price.
+
+    - Slots with their own booking_item are priced
+      individually: unit_price × shift_count.
+    - Slots without a booking_item (legacy hires) fall
+      back to hire.booking_price, which is a FLAT price
+      for the whole hire and is applied only ONCE,
+      regardless of how many legacy slots exist.
 
     Example:
 
-        Package A:
+        Slot A (booking_item, 10,000/unit):
             10,000 × 2 shifts = 20,000
 
-        Package B:
+        Slot B (booking_item, 15,000/unit):
             15,000 × 1 shift = 15,000
 
         service_price = 35,000
+
+    Example (legacy hire, flat package price 75,000,
+    two slots, no booking_item):
+
+        service_price = 75,000  (applied once, not per slot)
     """
 
     total_service_price = ZERO_AMOUNT
+    legacy_price_applied = False
 
     for item in slot_shifts:
-        booking_slot = item[
-            "booking_slot"
-        ]
+        booking_slot = item["booking_slot"]
+        shift_count = item["shift_count"]
 
-        shift_count = item[
-            "shift_count"
-        ]
-
-        unit_price = (
-            get_booking_slot_unit_price(
-                hire=hire,
-                booking_slot=booking_slot,
+        if booking_slot.booking_item_id:
+            unit_price = (
+                booking_slot.booking_item.unit_price
+                or ZERO_AMOUNT
             )
-        )
 
-        if unit_price <= ZERO_AMOUNT:
-            raise serializers.ValidationError({
-                "service_price": (
-                    "Service price cannot be calculated "
-                    "because one of the selected booking "
-                    "options does not have a valid price."
-                )
-            })
+            if unit_price <= ZERO_AMOUNT:
+                raise serializers.ValidationError({
+                    "service_price": (
+                        "Service price cannot be "
+                        "calculated because one of the "
+                        "selected booking options does "
+                        "not have a valid price."
+                    )
+                })
 
-        total_service_price += (
-            unit_price * shift_count
-        )
+            total_service_price += unit_price * shift_count
+
+        else:
+            if not legacy_price_applied:
+                booking_price = hire.booking_price or ZERO_AMOUNT
+
+                if booking_price <= ZERO_AMOUNT:
+                    raise serializers.ValidationError({
+                        "service_price": (
+                            "Service price cannot be "
+                            "calculated because this hire "
+                            "does not have a valid "
+                            "booking price."
+                        )
+                    })
+
+                total_service_price += booking_price
+                legacy_price_applied = True
 
     return total_service_price
 

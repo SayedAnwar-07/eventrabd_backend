@@ -64,8 +64,15 @@ def create_invoice_updated_notification(
     changed_fields,
 ):
     """
-    Create an in-app notification when actual invoice
-    information has changed.
+    Create invoice update notification.
+
+    Cases:
+
+    1. Seller edits invoice:
+        Recipient -> Customer
+
+    2. Customer agrees/disagrees:
+        Recipient -> Seller
     """
 
     readable_changed_fields = [
@@ -80,24 +87,114 @@ def create_invoice_updated_notification(
         readable_changed_fields
     )
 
+
+    # ---------------------------------------------
+    # Customer decision notification
+    # Customer -> Seller
+    # ---------------------------------------------
+
+    if "customer_agreed" in changed_fields:
+
+        seller_id = (
+            invoice
+            .hire
+            .service
+            .brand
+            .seller_id
+        )
+
+        customer_name = (
+            invoice
+            .customer_name_snapshot
+        )
+
+        decision_text = (
+            "agreed"
+            if invoice.customer_agreed
+            else "disagreed"
+        )
+
+        notification = Notification.objects.create(
+
+            recipient_id=seller_id,
+
+            invoice=invoice,
+
+            notification_type=(
+                NotificationType.INVOICE_UPDATED
+            ),
+
+            title="Customer invoice decision",
+
+            message=(
+                f"{customer_name} has "
+                f"{decision_text} with invoice "
+                f"{invoice.invoice_number}."
+            ),
+
+            data={
+                "invoice_id": str(invoice.id),
+
+                "customer_name": (
+                    customer_name
+                ),
+
+                "customer_agreed": (
+                    invoice.customer_agreed
+                ),
+
+                "decision": (
+                    decision_text
+                ),
+            },
+        )
+
+
+        send_notification_to_user(
+            notification
+        )
+
+        return notification
+
+
+    # ---------------------------------------------
+    # Normal seller invoice update
+    # Seller -> Customer
+    # ---------------------------------------------
+
     notification = Notification.objects.create(
-        recipient_id=invoice.hire.customer_id,
+
+        recipient_id=(
+            invoice.hire.customer_id
+        ),
+
         invoice=invoice,
+
         notification_type=(
             NotificationType.INVOICE_UPDATED
         ),
+
         title="Invoice updated",
+
         message=(
             f"Invoice {invoice.invoice_number} "
             f"has been updated. "
-            f"Updated information: {changed_text}."
+            f"Updated information: "
+            f"{changed_text}."
         ),
+
         data={
             "invoice_id": str(invoice.id),
-            "changed_fields": changed_fields,
+
+            "changed_fields": (
+                changed_fields
+            ),
         },
     )
 
-    send_notification_to_user(notification)
+
+    send_notification_to_user(
+        notification
+    )
 
     return notification
