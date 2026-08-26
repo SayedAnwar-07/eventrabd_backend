@@ -11,7 +11,7 @@ from corsheaders.defaults import default_headers
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Load .env
-load_dotenv(dotenv_path=BASE_DIR / ".env", override=True)
+load_dotenv(dotenv_path=BASE_DIR / ".env", override=False)
 
 # SECRET KEY
 SECRET_KEY = os.getenv("SECRET_KEY")
