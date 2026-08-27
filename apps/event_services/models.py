@@ -77,6 +77,7 @@ class EventService(UIDMixin, TimeStampedModel):
     )
 
     description = models.TextField(
+        max_length=3000,
         blank=True,
         null=True,
     )

@@ -86,7 +86,7 @@ class EventBrand(UIDMixin, TimeStampedModel):
     )
 
     short_description = models.TextField(
-        max_length=500,
+        max_length=3000,
         blank=True,
         null=True,
     )

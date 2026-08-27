@@ -80,7 +80,7 @@ def delete_refresh_cookie(
         key=cookie_name,
         path=settings.REFRESH_TOKEN_COOKIE_PATH,
         domain=settings.REFRESH_TOKEN_COOKIE_DOMAIN,
-        secure=settings.REFRESH_TOKEN_COOKIE_SECURE,
+        # secure=settings.REFRESH_TOKEN_COOKIE_SECURE,
         samesite=settings.REFRESH_TOKEN_COOKIE_SAMESITE,
     )
 
