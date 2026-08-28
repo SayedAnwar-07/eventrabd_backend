@@ -7,7 +7,7 @@ from django.db import models
 from apps.core.models import TimeStampedModel, UIDMixin
 from apps.event_services.models import EventService, ServiceType
 
-MAX_SHORT_INFO_ITEMS = 3
+MAX_SHORT_INFO_ITEMS = 4
 MAX_SHORT_INFO_LENGTH = 120
 
 
