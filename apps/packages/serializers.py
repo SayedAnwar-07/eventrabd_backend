@@ -3,6 +3,8 @@ from rest_framework import serializers
 from apps.packages.models import (
     ServicePackage,
     PACKAGE_ALLOWED_SERVICE_TYPES,
+    MAX_SHORT_INFO_ITEMS,
+    MAX_SHORT_INFO_LENGTH,
 )
 
 
@@ -10,6 +12,17 @@ class ServicePackageSerializer(serializers.ModelSerializer):
     service_id = serializers.CharField(
         source="service.id",
         read_only=True,
+    )
+    
+    short_info = serializers.ListField(
+        child=serializers.CharField(
+            max_length=MAX_SHORT_INFO_LENGTH,
+            allow_blank=False,
+            trim_whitespace=True,
+        ),
+        max_length=MAX_SHORT_INFO_ITEMS,
+        required=False,
+        allow_empty=True,
     )
 
     service_name = serializers.CharField(
@@ -31,6 +44,7 @@ class ServicePackageSerializer(serializers.ModelSerializer):
             "service_display_name",
             "package_title",
             "package_price",
+            "short_info",
             "created_at",
             "updated_at",
         ]

@@ -103,6 +103,7 @@ INSTALLED_APPS = [
     "apps.reviews",
     "apps.packages",
     "apps.reports",
+    "apps.membership",
 ]
 
 MIDDLEWARE = [

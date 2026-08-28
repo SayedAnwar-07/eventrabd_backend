@@ -1,9 +1,12 @@
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 
 from rest_framework import generics, permissions
+from rest_framework.exceptions import (
+    PermissionDenied,
+    ValidationError,
+)
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.response import Response
-from rest_framework import status
 
 from apps.event_services.models import EventService
 from apps.packages.models import (
@@ -11,7 +14,9 @@ from apps.packages.models import (
     PACKAGE_ALLOWED_SERVICE_TYPES,
 )
 from apps.packages.serializers import ServicePackageSerializer
+from apps.membership.models import Membership
 
+BASIC_PACKAGE_LIMIT = 3
 
 class ServicePackageMixin:
     serializer_class = ServicePackageSerializer
@@ -24,6 +29,7 @@ class ServicePackageMixin:
             EventService.objects.select_related(
                 "brand",
                 "brand__seller",
+                "brand__seller__membership",
             ),
             id=self.kwargs.get("service_id"),
         )
@@ -71,24 +77,69 @@ class ServicePackageListCreateView(
         return [permissions.IsAuthenticated()]
 
     def perform_create(self, serializer):
-        service = self.check_service_owner()
+        with transaction.atomic():
+            service = get_object_or_404(
+                EventService.objects
+                .select_for_update()
+                .select_related(
+                    "brand",
+                    "brand__seller",
+                    "brand__seller__membership",
+                ),
+                id=self.kwargs.get("service_id"),
+            )
 
-        if (
-            service.service_name
-            not in PACKAGE_ALLOWED_SERVICE_TYPES
-        ):
-            from rest_framework.exceptions import ValidationError
-
-            raise ValidationError({
-                "service": (
-                    "Packages can only be created for "
-                    "Photography and Videography services."
+            if service.brand.seller_id != self.request.user.id:
+                raise PermissionDenied(
+                    "You can only manage packages "
+                    "for your own service."
                 )
-            })
 
-        serializer.save(
-            service=service,
-        )
+            if (
+                service.service_name
+                not in PACKAGE_ALLOWED_SERVICE_TYPES
+            ):
+                raise ValidationError({
+                    "service": (
+                        "Packages can only be created for "
+                        "Photography and Videography services."
+                    )
+                })
+
+            try:
+                membership_type = (
+                    service.brand
+                    .seller
+                    .membership
+                    .membership_type
+                )
+            except Membership.DoesNotExist:
+                membership_type = (
+                    Membership.MembershipType.BASIC
+                )
+
+            if (
+                membership_type
+                == Membership.MembershipType.BASIC
+            ):
+                package_count = (
+                    ServicePackage.objects
+                    .filter(service_id=service.id)
+                    .count()
+                )
+
+                if package_count >= BASIC_PACKAGE_LIMIT:
+                    raise ValidationError({
+                        "package": (
+                            "Your Basic membership allows "
+                            "a maximum of 3 packages for "
+                            "this service."
+                        )
+                    })
+
+            serializer.save(
+                service=service,
+            )
 
 
 class ServicePackageDetailView(

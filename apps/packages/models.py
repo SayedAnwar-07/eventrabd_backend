@@ -7,6 +7,42 @@ from django.db import models
 from apps.core.models import TimeStampedModel, UIDMixin
 from apps.event_services.models import EventService, ServiceType
 
+MAX_SHORT_INFO_ITEMS = 3
+MAX_SHORT_INFO_LENGTH = 120
+
+
+def validate_short_info(value):
+    if value in (None, []):
+        return
+
+    if not isinstance(value, list):
+        raise ValidationError(
+            "Short info must be a list."
+        )
+
+    if len(value) > MAX_SHORT_INFO_ITEMS:
+        raise ValidationError(
+            f"You can add maximum "
+            f"{MAX_SHORT_INFO_ITEMS} short info items."
+        )
+
+    for item in value:
+        if not isinstance(item, str):
+            raise ValidationError(
+                "Each short info must be text."
+            )
+
+        if not item.strip():
+            raise ValidationError(
+                "Short info cannot be empty."
+            )
+
+        if len(item.strip()) > MAX_SHORT_INFO_LENGTH:
+            raise ValidationError(
+                f"Each short info can contain maximum "
+                f"{MAX_SHORT_INFO_LENGTH} characters."
+            )
+
 
 PACKAGE_ALLOWED_SERVICE_TYPES = {
     ServiceType.PHOTOGRAPHY,
@@ -30,6 +66,14 @@ class ServicePackage(UIDMixin, TimeStampedModel):
         decimal_places=2,
         validators=[
             MinValueValidator(Decimal("0.01")),
+        ],
+    )
+    
+    short_info = models.JSONField(
+        default=list,
+        blank=True,
+        validators=[
+            validate_short_info,
         ],
     )
 
