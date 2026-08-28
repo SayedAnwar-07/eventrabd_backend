@@ -79,26 +79,16 @@ class ServicePackageListCreateView(
     def perform_create(self, serializer):
         with transaction.atomic():
             service = get_object_or_404(
-                EventService.objects
-                .select_for_update()
-                .select_related(
-                    "brand",
-                    "brand__seller",
-                    "brand__seller__membership",
-                ),
+                EventService.objects.select_for_update(),
                 id=self.kwargs.get("service_id"),
             )
 
             if service.brand.seller_id != self.request.user.id:
                 raise PermissionDenied(
-                    "You can only manage packages "
-                    "for your own service."
+                    "You can only manage packages for your own service."
                 )
 
-            if (
-                service.service_name
-                not in PACKAGE_ALLOWED_SERVICE_TYPES
-            ):
+            if service.service_name not in PACKAGE_ALLOWED_SERVICE_TYPES:
                 raise ValidationError({
                     "service": (
                         "Packages can only be created for "
@@ -114,14 +104,9 @@ class ServicePackageListCreateView(
                     .membership_type
                 )
             except Membership.DoesNotExist:
-                membership_type = (
-                    Membership.MembershipType.BASIC
-                )
+                membership_type = Membership.MembershipType.BASIC
 
-            if (
-                membership_type
-                == Membership.MembershipType.BASIC
-            ):
+            if membership_type == Membership.MembershipType.BASIC:
                 package_count = (
                     ServicePackage.objects
                     .filter(service_id=service.id)
@@ -132,14 +117,11 @@ class ServicePackageListCreateView(
                     raise ValidationError({
                         "package": (
                             "Your Basic membership allows "
-                            "a maximum of 3 packages for "
-                            "this service."
+                            "a maximum of 3 packages for this service."
                         )
                     })
 
-            serializer.save(
-                service=service,
-            )
+            serializer.save(service=service)
 
 
 class ServicePackageDetailView(
