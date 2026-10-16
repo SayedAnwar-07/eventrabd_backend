@@ -352,11 +352,21 @@ class BrandSummarySerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class EventServiceSummarySerializer(
-    serializers.ModelSerializer
-):
+
+class EventServiceSummarySerializer(serializers.ModelSerializer):
     service_display_name = serializers.CharField(
         source="get_service_name_display",
+        read_only=True,
+    )
+
+    rating = serializers.DecimalField(
+        source="average_rating",
+        max_digits=4,
+        decimal_places=2,
+        read_only=True,
+    )
+
+    rating_count = serializers.IntegerField(
         read_only=True,
     )
 
@@ -369,9 +379,13 @@ class EventServiceSummarySerializer(
             "service_display_name",
             "shift_charge",
             "shift_hour",
+            "rating",
+            "rating_count",
+            "rating_sum",
         ]
 
         read_only_fields = fields
+
 
 
 # =========================================================
@@ -552,7 +566,7 @@ class HireDetailSerializer(
     )
 
     service = EventServiceSummarySerializer(
-        read_only=True,
+        read_only=True
     )
 
     # Legacy field, useful for old hires.

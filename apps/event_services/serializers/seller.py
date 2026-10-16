@@ -32,6 +32,7 @@ class EventBrandMiniSerializer(
     serializers.ModelSerializer
 ):
     is_owner = serializers.SerializerMethodField()
+    logo_url = serializers.SerializerMethodField()
 
     class Meta:
         model = EventBrand
@@ -44,6 +45,7 @@ class EventBrandMiniSerializer(
             "division",
             "office_address",
             "is_owner",
+            "logo_url",
         ]
 
         read_only_fields = fields
@@ -66,6 +68,24 @@ class EventBrandMiniSerializer(
             == "seller"
             and obj.seller_id == request.user.id
         )
+    def get_logo_url(self, obj):
+        if not obj.logo:
+            return None
+
+        try:
+            return obj.logo.build_url(
+                transformation=[
+                    {
+                        "width": 300,
+                        "height": 300,
+                        "crop": "limit",
+                    }
+                ],
+                quality="auto",
+                fetch_format="auto",
+            )
+        except Exception:
+            return None
 
 
 # =========================================================

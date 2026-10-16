@@ -199,6 +199,7 @@ class Invoice(UIDMixin, TimeStampedModel):
         ),
     )
 
+    
     class Meta:
         verbose_name = "Invoice"
         verbose_name_plural = "Invoices"
@@ -206,22 +207,23 @@ class Invoice(UIDMixin, TimeStampedModel):
 
         constraints = [
             models.CheckConstraint(
-                check=Q(service_price__gte=ZERO_AMOUNT),
+                condition=Q(service_price__gte=ZERO_AMOUNT),
                 name="invoice_service_price_non_negative",
             ),
             models.CheckConstraint(
-                check=Q(discount_price__gte=ZERO_AMOUNT),
+                condition=Q(discount_price__gte=ZERO_AMOUNT),
                 name="invoice_discount_non_negative",
             ),
             models.CheckConstraint(
-                check=Q(advance_payment__gte=ZERO_AMOUNT),
+                condition=Q(advance_payment__gte=ZERO_AMOUNT),
                 name="invoice_advance_non_negative",
             ),
             models.CheckConstraint(
-                check=Q(additional_charge__gte=ZERO_AMOUNT),
+                condition=Q(additional_charge__gte=ZERO_AMOUNT),
                 name="invoice_additional_charge_non_negative",
             ),
-        ]
+    ]
+
 
     def __str__(self):
         return (

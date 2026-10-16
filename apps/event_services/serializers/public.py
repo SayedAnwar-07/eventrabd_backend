@@ -1,10 +1,10 @@
 from decimal import Decimal
 
+from django.core.cache import cache
+
 from rest_framework import serializers
 
-from apps.event_planner.models import (
-    EventBrand,
-)
+from apps.event_planner.models import EventBrand
 
 from apps.event_services.models import (
     EventService,
@@ -16,14 +16,17 @@ from apps.event_services.serializers.common import (
 )
 
 
-# =========================================================
-# Public seller
-# =========================================================
+IMAGE_CACHE_TIMEOUT = 86400
 
+
+# =========================================================
+# Public Seller Serializer
+# =========================================================
 
 class PublicServiceSellerSerializer(
     serializers.ModelSerializer
 ):
+
     id = serializers.CharField(
         source="seller.id",
         read_only=True,
@@ -39,9 +42,8 @@ class PublicServiceSellerSerializer(
         read_only=True,
     )
 
-    profile_image_url = (
-        serializers.SerializerMethodField()
-    )
+    profile_image_url = serializers.SerializerMethodField()
+
 
     class Meta:
         model = EventBrand
@@ -56,54 +58,74 @@ class PublicServiceSellerSerializer(
 
         read_only_fields = fields
 
-    def get_profile_image_url(
-        self,
-        obj,
-    ):
+
+    def get_profile_image_url(self, obj):
+
         seller = obj.seller
 
         if not seller.profile_image:
             return None
 
+
+        cache_key = (
+            f"seller_profile:{seller.id}"
+        )
+
+
+        url = cache.get(cache_key)
+
+
+        if url:
+            return url
+
+
         try:
-            return seller.profile_image.build_url(
+
+            url = seller.profile_image.build_url(
                 transformation=[
                     {
-                        "width": 500,
-                        "height": 500,
-                        "crop": "limit",
+                        "width":500,
+                        "height":500,
+                        "crop":"limit",
                     }
                 ],
                 quality="auto",
                 fetch_format="auto",
             )
 
+
+            cache.set(
+                cache_key,
+                url,
+                IMAGE_CACHE_TIMEOUT,
+            )
+
+
+            return url
+
+
         except Exception:
             return None
 
 
-# =========================================================
-# Public brand
-# =========================================================
 
+# =========================================================
+# Public Brand Serializer
+# =========================================================
 
 class PublicServiceBrandSerializer(
     serializers.ModelSerializer
 ):
-    logo_url = (
-        serializers.SerializerMethodField()
-    )
 
-    rating = (
-        serializers.SerializerMethodField()
-    )
+    logo_url = serializers.SerializerMethodField()
 
-    is_owner = (
-        serializers.SerializerMethodField()
-    )
+    rating = serializers.SerializerMethodField()
+
 
     class Meta:
+
         model = EventBrand
+
 
         fields = [
             "id",
@@ -115,100 +137,94 @@ class PublicServiceBrandSerializer(
             "office_address",
             "rating",
             "review_count",
-            "is_owner",
         ]
+
 
         read_only_fields = fields
 
-    # =====================================================
-    # Owner
-    # =====================================================
 
-    def get_is_owner(
-        self,
-        obj,
-    ):
-        request = self.context.get(
-            "request"
-        )
 
-        if (
-            not request
-            or not request.user.is_authenticated
-        ):
-            return False
+    def get_logo_url(self,obj):
 
-        return (
-            getattr(
-                request.user,
-                "role",
-                None,
-            )
-            == "seller"
-            and obj.seller_id == request.user.id
-        )
-
-    # =====================================================
-    # Logo
-    # =====================================================
-
-    def get_logo_url(
-        self,
-        obj,
-    ):
         if not obj.logo:
             return None
 
+
+        cache_key = (
+            f"brand_logo:{obj.id}"
+        )
+
+
+        url = cache.get(cache_key)
+
+
+        if url:
+            return url
+
+
+
         try:
-            return obj.logo.build_url(
+
+            url = obj.logo.build_url(
                 transformation=[
                     {
-                        "width": 300,
-                        "height": 300,
-                        "crop": "limit",
+                        "width":300,
+                        "height":300,
+                        "crop":"limit",
                     }
                 ],
                 quality="auto",
                 fetch_format="auto",
             )
 
+
+            cache.set(
+                cache_key,
+                url,
+                IMAGE_CACHE_TIMEOUT,
+            )
+
+
+            return url
+
+
         except Exception:
             return None
 
-    # =====================================================
-    # Brand rating
-    # =====================================================
 
-    def get_rating(
-        self,
-        obj,
-    ):
+
+    def get_rating(self,obj):
+
         if not obj.review_count:
             return Decimal("0.00")
 
+
         return (
             Decimal(obj.rating_sum)
-            / Decimal(obj.review_count)
-            / Decimal("2")
+            /
+            Decimal(obj.review_count)
+            /
+            Decimal("2")
         ).quantize(
             Decimal("0.01")
         )
 
 
-# =========================================================
-# Public service card
-# =========================================================
 
+# =========================================================
+# Public Event Service Card
+# =========================================================
 
 class PublicEventServiceCardSerializer(
     serializers.ModelSerializer
 ):
-    service_display_name = (
-        serializers.CharField(
-            source="get_service_name_display",
-            read_only=True,
-        )
+
+
+    service_display_name = serializers.CharField(
+        source="get_service_name_display",
+        read_only=True,
     )
+
 
     rating = serializers.DecimalField(
         source="average_rating",
@@ -217,28 +233,35 @@ class PublicEventServiceCardSerializer(
         read_only=True,
     )
 
-    cover_photo_url = (
-        serializers.SerializerMethodField()
-    )
 
-    gallery_images = (
-        serializers.SerializerMethodField()
-    )
+    cover_photo_url = serializers.SerializerMethodField()
+
+
+    gallery_images = serializers.SerializerMethodField()
+
+
 
     seller = PublicServiceSellerSerializer(
         source="brand",
         read_only=True,
     )
 
+
     brand = PublicServiceBrandSerializer(
         read_only=True,
     )
 
+
+
     class Meta:
+
         model = EventService
 
+
         fields = [
+
             "id",
+
             "service_name",
             "service_display_name",
             "slug",
@@ -256,57 +279,75 @@ class PublicEventServiceCardSerializer(
             "brand",
         ]
 
-        read_only_fields = fields
 
-    # =====================================================
-    # Cover photo
-    # =====================================================
 
-    def get_cover_photo_url(
-        self,
-        obj,
-    ):
+    def get_cover_photo_url(self,obj):
+
         if (
             obj.service_name
             not in COVER_PHOTO_ONLY_SERVICE_TYPES
         ):
             return None
 
+
+        if not obj.cover_photo:
+            return None
+
+
+
+        cache_key = (
+            f"service_cover:{obj.id}"
+        )
+
+
+
+        url = cache.get(cache_key)
+
+
+        if url:
+            return url
+
+
+
         try:
-            return (
-                obj.cover_photo.url
-                if obj.cover_photo
-                else None
+
+            url = obj.cover_photo.url
+
+
+            cache.set(
+                cache_key,
+                url,
+                IMAGE_CACHE_TIMEOUT,
             )
+
+
+            return url
+
 
         except Exception:
             return None
 
-    # =====================================================
-    # Gallery
-    # =====================================================
 
-    def get_gallery_images(
-        self,
-        obj,
-    ):
+
+
+    def get_gallery_images(self,obj):
+
+
         if (
             obj.service_name
             in COVER_PHOTO_ONLY_SERVICE_TYPES
         ):
             return []
 
+
+
         images = getattr(
             obj,
             "prefetched_gallery_images",
-            None,
+            []
         )
 
-        # Defensive fallback.
-        # Public list view should already provide
-        # prefetched_gallery_images.
-        if images is None:
-            images = obj.gallery_images.all()
+
 
         return ServiceGalleryImageSerializer(
             images,

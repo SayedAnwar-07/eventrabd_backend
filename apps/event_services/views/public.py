@@ -1,5 +1,6 @@
 import logging
-from time import perf_counter
+from django.core.cache import cache
+from rest_framework.response import Response
 
 from django.db import connection
 
@@ -10,9 +11,10 @@ from django.views.decorators.cache import (
     never_cache,
 )
 
+from rest_framework.pagination import CursorPagination
+
 from rest_framework import (
     generics,
-    pagination,
     permissions,
 )
 
@@ -35,6 +37,7 @@ from apps.event_services.views.mixins import (
     EventServiceBaseQueryMixin,
 )
 
+
 logger = logging.getLogger(__name__)
 
 # =========================================================
@@ -42,13 +45,19 @@ logger = logging.getLogger(__name__)
 # =========================================================
 
 
+# class EventServicePagination(
+#     pagination.PageNumberPagination
+# ):
+#     page_size = 12
+#     page_size_query_param = "page_size"
+#     max_page_size = 50
+
 class EventServicePagination(
-    pagination.PageNumberPagination
+    CursorPagination
 ):
     page_size = 12
-    page_size_query_param = "page_size"
-    max_page_size = 50
-
+    ordering = "-created_at"
+    cursor_query_param = "cursor"
 
 # =========================================================
 # Shared public gallery prefetch
@@ -89,19 +98,19 @@ def service_gallery_prefetch():
 # =========================================================
 
 
-@method_decorator(
-    never_cache,
-    name="dispatch",
-)
-@method_decorator(
-    cache_control(
-        private=True,
-        no_cache=True,
-        no_store=True,
-        must_revalidate=True,
-    ),
-    name="dispatch",
-)
+# @method_decorator(
+#     never_cache,
+#     name="dispatch",
+# )
+# @method_decorator(
+#     cache_control(
+#         private=True,
+#         no_cache=True,
+#         no_store=True,
+#         must_revalidate=True,
+#     ),
+#     name="dispatch",
+# )
 class PublicEventServiceListView(
     generics.ListAPIView
 ):
@@ -117,6 +126,45 @@ class PublicEventServiceListView(
         EventServicePagination
     )
     
+    
+    # =================================================
+    # Redis Cache Response
+    # =================================================
+    def list(self, request, *args, **kwargs):
+
+        cache_key = (
+            "public_services:"
+            + request.get_full_path()
+        )
+
+
+        cached_response = cache.get(
+            cache_key
+        )
+
+
+        if cached_response:
+            return Response(
+                cached_response
+            )
+
+
+        response = super().list(
+            request,
+            *args,
+            **kwargs
+        )
+
+
+        cache.set(
+            cache_key,
+            response.data,
+            timeout=300
+        )
+
+
+        return response
+        
     def get_queryset(self):
         queryset = (
             EventService.objects

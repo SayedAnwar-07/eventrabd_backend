@@ -21,7 +21,8 @@ if not SECRET_KEY:
 
 
 # DEBUG MODE
-DEBUG = os.getenv("DEBUG", "False") == "True"
+# DEBUG = os.getenv("DEBUG", "False") == "True"
+DEBUG =True
 
 # ALLOWED HOSTS
 raw_hosts = os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost")
@@ -162,6 +163,23 @@ CHANNEL_LAYERS = {
             "expiry": 10,
         },
     },
+}
+
+# redis 
+CACHES = {
+
+    "default": {
+
+        "BACKEND":
+        "django.core.cache.backends.redis.RedisCache",
+
+        "LOCATION":
+        os.getenv(
+            "REDIS_URL",
+            "redis://127.0.0.1:6379/2"
+        ),
+
+    }
 }
 
 # ── DATABASE CONFIG ───────────────────────────────
