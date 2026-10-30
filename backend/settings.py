@@ -31,22 +31,19 @@ ALLOWED_HOSTS = ["*"] if raw_hosts.strip() == "*" else [
 ]
 
 # CORS
+# CORS CONFIGURATION
+
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOW_CREDENTIALS = True
 
-raw_cors = os.getenv(
-    "CORS_ALLOWED_ORIGINS",
-    "http://localhost:5000,"
-    "http://localhost:5173,"
-    "https://eventrabd-test.netlify.app,"
-    "https://eventrabd.vercel.app,"
-    "https://eventra-bd-admin.netlify.app"
-)
-
 CORS_ALLOWED_ORIGINS = [
-    origin.strip()
-    for origin in raw_cors.split(",")
-    if origin.strip()
+    "https://eventra-bd.vercel.app",
+    "https://eventra-bd-admin.netlify.app",
+    "https://eventrabd-test.netlify.app",
+
+    # Local development
+    "http://localhost:5173",
+    "http://localhost:5000",
 ]
 
 CORS_ALLOW_HEADERS = (
@@ -55,19 +52,16 @@ CORS_ALLOW_HEADERS = (
     "pragma",
 )
 
-raw_csrf = os.getenv(
-    "CSRF_TRUSTED_ORIGINS",
-    "http://localhost:5000,"
-    "http://localhost:5173,"
-    "https://eventrabd-test.netlify.app,"
-    "https://eventra-bd.vercel.app,"
-    "https://eventra-bd-admin.netlify.app"
-)
+# CSRF CONFIGURATION
 
 CSRF_TRUSTED_ORIGINS = [
-    origin.strip()
-    for origin in raw_csrf.split(",")
-    if origin.strip()
+    "https://eventra-bd.vercel.app",
+    "https://eventra-bd-admin.netlify.app",
+    "https://eventrabd-test.netlify.app",
+
+    # Local development
+    "http://localhost:5173",
+    "http://localhost:5000",
 ]
 
 # INSTALLED APPS
