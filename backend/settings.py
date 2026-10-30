@@ -60,7 +60,7 @@ raw_csrf = os.getenv(
     "http://localhost:5000,"
     "http://localhost:5173,"
     "https://eventrabd-test.netlify.app,"
-    "https://eventrabd.vercel.app,"
+    "https://eventra-bd.vercel.app,"
     "https://eventra-bd-admin.netlify.app"
 )
 
