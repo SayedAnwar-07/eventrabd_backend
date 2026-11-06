@@ -26,3 +26,5 @@ Eventra BD main database = 8Tfdq6E3MQCyuG5A
 
 //powershell
 wsl -d Ubuntu-24.04 -- sudo systemctl start redis-server
+
+179.197.255.126
