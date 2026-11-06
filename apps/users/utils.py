@@ -1,4 +1,5 @@
 import secrets
+import logging
 
 from django.conf import settings
 from django.core.mail import send_mail
@@ -6,12 +7,12 @@ from django.template.loader import render_to_string
 from rest_framework_simplejwt.tokens import RefreshToken
 
 
+logger = logging.getLogger(__name__)
+
+
 def generate_otp() -> str:
     """
     Generate a cryptographically secure six-digit OTP.
-
-    Possible range:
-    100000–999999
     """
     return str(
         100000 + secrets.randbelow(900000)
@@ -47,20 +48,35 @@ def send_otp_email(
         )
 
         if sent_count == 1:
+            logger.info(
+                "OTP email sent successfully to %s",
+                user.email,
+            )
+
             return (
                 True,
                 "OTP email sent successfully.",
             )
+
+        logger.error(
+            "OTP email was not sent to %s",
+            user.email,
+        )
 
         return (
             False,
             "OTP email was not sent.",
         )
 
-    except Exception as error:
+    except Exception:
+        logger.exception(
+            "OTP email sending failed for %s",
+            user.email,
+        )
+
         return (
             False,
-            str(error),
+            "Email delivery failed. Check server logs.",
         )
 
 

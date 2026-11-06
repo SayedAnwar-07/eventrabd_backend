@@ -30,13 +30,16 @@ ALLOWED_HOSTS = ["*"] if raw_hosts.strip() == "*" else [
     host.strip() for host in raw_hosts.split(",") if host.strip()
 ]
 
-# CORS
 # CORS CONFIGURATION
-
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
+    # Production Frontend
+    "https://eventrabd.com",
+    "https://www.eventrabd.com",
+
+    # Previous Frontend deployments
     "https://eventra-bd.vercel.app",
     "https://eventra-bd-admin.netlify.app",
     "https://eventrabd-test.netlify.app",
@@ -55,6 +58,11 @@ CORS_ALLOW_HEADERS = (
 # CSRF CONFIGURATION
 
 CSRF_TRUSTED_ORIGINS = [
+    # Production Frontend
+    "https://eventrabd.com",
+    "https://www.eventrabd.com",
+
+    # Previous Frontend deployments
     "https://eventra-bd.vercel.app",
     "https://eventra-bd-admin.netlify.app",
     "https://eventrabd-test.netlify.app",
