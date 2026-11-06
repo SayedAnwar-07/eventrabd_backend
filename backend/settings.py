@@ -255,29 +255,59 @@ CACHES = {
 }
 
 
+
 # ============================================================
 # DATABASE CONFIGURATION
 # ============================================================
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
+# Dokploy internal PostgreSQL connections do not require SSL.
+# Set DATABASE_SSL_REQUIRE=True only when your database provider
+# explicitly requires SSL.
+DATABASE_SSL_REQUIRE = env_bool("DATABASE_SSL_REQUIRE", False)
+
+
 if DATABASE_URL:
+
+    # --------------------------------------------------------
+    # DATABASE URL CONFIGURATION
+    # --------------------------------------------------------
 
     DATABASES = {
         "default": dj_database_url.parse(
             DATABASE_URL,
             conn_max_age=0,
-            ssl_require=env_bool("DATABASE_SSL_REQUIRE", True),
+            ssl_require=DATABASE_SSL_REQUIRE,
         )
     }
 
+    # Explicitly configure SSL mode.
+    # This also overrides sslmode=require if it exists in DATABASE_URL.
+    DATABASE_OPTIONS = DATABASES["default"].get("OPTIONS") or {}
+
+    DATABASE_OPTIONS["sslmode"] = (
+        "require" if DATABASE_SSL_REQUIRE else "disable"
+    )
+
+    DATABASE_OPTIONS.setdefault("connect_timeout", 10)
+
+    DATABASES["default"]["OPTIONS"] = DATABASE_OPTIONS
+
+    # Connection settings
     DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
 
     DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
+
 else:
 
+    # --------------------------------------------------------
+    # INDIVIDUAL DATABASE ENVIRONMENT VARIABLES
+    # --------------------------------------------------------
+
     if DEBUG:
+
         DB_NAME = os.getenv("DB_NAME", "eventraBD")
         DB_USER = os.getenv("DB_USER", "postgres")
         DB_PASSWORD = os.getenv("DB_PASSWORD", "")
@@ -285,28 +315,42 @@ else:
         DB_PORT = os.getenv("DB_PORT", "5432")
 
     else:
+
         DB_NAME = required_env("DB_NAME")
         DB_USER = required_env("DB_USER")
         DB_PASSWORD = required_env("DB_PASSWORD")
         DB_HOST = required_env("DB_HOST")
         DB_PORT = os.getenv("DB_PORT", "5432")
 
+    # --------------------------------------------------------
+    # FINAL DATABASE SETTINGS
+    # --------------------------------------------------------
+
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
+
             "NAME": DB_NAME,
             "USER": DB_USER,
             "PASSWORD": DB_PASSWORD,
+
             "HOST": DB_HOST,
             "PORT": DB_PORT,
+
             "CONN_MAX_AGE": 0,
             "CONN_HEALTH_CHECKS": True,
+
+            "DISABLE_SERVER_SIDE_CURSORS": True,
+
             "OPTIONS": {
                 "connect_timeout": 10,
+
+                "sslmode": (
+                    "require" if DATABASE_SSL_REQUIRE else "disable"
+                ),
             },
         }
     }
-
 
 # ============================================================
 # AUTHENTICATION
