@@ -67,49 +67,36 @@ ALLOWED_HOSTS = (
 # CORS CONFIGURATION
 # ============================================================
 
+
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
-    # Production frontend
+    # Production
     "https://eventrabd.com",
     "https://www.eventrabd.com",
-
-    # Previous frontend deployments
     "https://eventra-bd.vercel.app",
     "https://eventra-bd-admin.netlify.app",
     "https://eventrabd-test.netlify.app",
 
-    # Local development
+    # Local
     "http://localhost:5173",
-    "http://localhost:5000",
+    "http://127.0.0.1:5173",
 ]
-
-CORS_ALLOW_HEADERS = (
-    *default_headers,
-    "cache-control",
-    "pragma",
-)
-
-
-# ============================================================
-# CSRF CONFIGURATION
-# ============================================================
 
 CSRF_TRUSTED_ORIGINS = [
-    # Production frontend
+    # Production
     "https://eventrabd.com",
     "https://www.eventrabd.com",
-
-    # Previous frontend deployments
     "https://eventra-bd.vercel.app",
     "https://eventra-bd-admin.netlify.app",
     "https://eventrabd-test.netlify.app",
 
-    # Local development
+    # Local
     "http://localhost:5173",
-    "http://localhost:5000",
+    "http://127.0.0.1:5173",
 ]
+
 
 
 # ============================================================
@@ -158,20 +145,23 @@ INSTALLED_APPS = [
 # ============================================================
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
+
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
+
     "apps.core.middleware.GlobalErrorMiddleware",
+
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+
     "allauth.account.middleware.AccountMiddleware",
     "apps.users.middleware.TokenVersionMiddleware",
 ]
-
 
 # ============================================================
 # URL AND APPLICATION CONFIGURATION
@@ -432,7 +422,6 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # ============================================================
 
 REST_FRAMEWORK = {
-
     "DEFAULT_EXCEPTION_HANDLER":
         "apps.core.exceptions.custom_exception_handler",
 
@@ -450,18 +439,15 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 20,
 
     "DEFAULT_THROTTLE_CLASSES": [
-        "rest_framework.throttling.AnonRateThrottle",
-        "rest_framework.throttling.UserRateThrottle",
         "rest_framework.throttling.ScopedRateThrottle",
     ],
+
     "DEFAULT_THROTTLE_RATES": {
-        "anon": "100/hour",
-        "user": "1000/day",
-        "public_brand": "300/hour",
         "login": "5/minute",
         "otp": "10/hour",
         "password_reset": "5/hour",
         "token_refresh": "20/minute",
+        "public_brand": "300/hour",
     },
 }
 
