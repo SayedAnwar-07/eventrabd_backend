@@ -28,3 +28,6 @@ Eventra BD main database = 8Tfdq6E3MQCyuG5A
 wsl -d Ubuntu-24.04 -- sudo systemctl start redis-server
 
 179.197.255.126
+
+Get-Service Redis
+Test-NetConnection 127.0.0.1 -Port 6379

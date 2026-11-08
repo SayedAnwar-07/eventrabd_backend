@@ -1,14 +1,15 @@
 import logging
 from django.core.cache import cache
 from rest_framework.response import Response
-
-from django.db import connection
-
 from django.db.models import Prefetch, Q
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import (
     cache_control,
     never_cache,
+)
+
+from apps.event_services.cache_utils import (
+    PUBLIC_SERVICES_CACHE_VERSION_KEY,
 )
 
 from rest_framework.pagination import CursorPagination
@@ -97,102 +98,88 @@ def service_gallery_prefetch():
 # Public all services list
 # =========================================================
 
-
-# @method_decorator(
-#     never_cache,
-#     name="dispatch",
-# )
-# @method_decorator(
-#     cache_control(
-#         private=True,
-#         no_cache=True,
-#         no_store=True,
-#         must_revalidate=True,
-#     ),
-#     name="dispatch",
-# )
+@method_decorator(
+    never_cache,
+    name="dispatch",
+)
 class PublicEventServiceListView(
     generics.ListAPIView
 ):
-    serializer_class = (
-        PublicEventServiceCardSerializer
-    )
+
+    serializer_class = PublicEventServiceCardSerializer
 
     permission_classes = [
         permissions.AllowAny,
     ]
 
-    pagination_class = (
-        EventServicePagination
-    )
-    
-    
-    # =================================================
-    # Redis Cache Response
-    # =================================================
+    pagination_class = EventServicePagination
+
+    # =====================================================
+    # REDIS RESPONSE CACHE
+    # =====================================================
+
     def list(self, request, *args, **kwargs):
 
+        # Get current cache generation.
+        cache_version = cache.get(
+            PUBLIC_SERVICES_CACHE_VERSION_KEY,
+            1,
+        )
+
+        # Different generation = different cache namespace.
         cache_key = (
-            "public_services:"
-            + request.get_full_path()
+            f"public_services:v{cache_version}:"
+            f"{request.get_full_path()}"
         )
 
+        # Redis HIT
+        cached_response = cache.get(cache_key)
 
-        cached_response = cache.get(
-            cache_key
-        )
+        if cached_response is not None:
+            return Response(cached_response)
 
-
-        if cached_response:
-            return Response(
-                cached_response
-            )
-
-
+        # Redis MISS: execute normal database query.
         response = super().list(
             request,
             *args,
-            **kwargs
+            **kwargs,
         )
 
+        # Cache successful responses only.
+        if response.status_code == 200:
 
-        cache.set(
-            cache_key,
-            response.data,
-            timeout=300
-        )
-
+            cache.set(
+                cache_key,
+                response.data,
+                timeout=300,
+            )
 
         return response
-        
+
+    # =====================================================
+    # QUERYSET
+    # =====================================================
+
     def get_queryset(self):
+
         queryset = (
             EventService.objects
 
-            # ForeignKey / OneToOne
             .select_related(
                 "brand",
                 "brand__seller",
             )
 
-            # Reverse ForeignKey
             .prefetch_related(
                 service_gallery_prefetch()
             )
 
-            .order_by(
-                "-created_at"
-            )
+            .order_by("-created_at")
         )
 
-        # =================================================
         # Seller filter
-        # =================================================
-
         seller_id = (
-            self.request
-            .query_params
-            .get("seller_id")
+            self.request.query_params.get("seller_id")
         )
 
         if seller_id:
@@ -200,14 +187,9 @@ class PublicEventServiceListView(
                 brand__seller_id=seller_id
             )
 
-        # =================================================
         # Brand filter
-        # =================================================
-
         brand_id = (
-            self.request
-            .query_params
-            .get("brand_id")
+            self.request.query_params.get("brand_id")
         )
 
         if brand_id:
@@ -215,48 +197,36 @@ class PublicEventServiceListView(
                 brand_id=brand_id
             )
 
-        # =================================================
         # Service type filter
-        # =================================================
-
         service_type = (
-            self.request
-            .query_params
-            .get("service_type")
+            self.request.query_params.get("service_type")
         )
 
         if service_type:
+
             service_type = (
-                service_type
-                .strip()
-                .lower()
+                service_type.strip().lower()
             )
 
-            # Exact lookup because our choice values
-            # and normalized input are already lowercase.
             queryset = queryset.filter(
                 service_name=service_type
             )
 
-        # =================================================
         # Division filter
-        # =================================================
-
         division = (
-            self.request
-            .query_params
-            .get("division")
+            self.request.query_params.get("division")
         )
 
         if division:
+
             division = (
-                division
-                .strip()
-                .lower()
+                division.strip().lower()
             )
 
             if division in DIVISION_VALUES:
+
                 if division == "whole_bangladesh":
+
                     queryset = queryset.filter(
                         brand__division__contains=[
                             "whole_bangladesh"
@@ -264,6 +234,7 @@ class PublicEventServiceListView(
                     )
 
                 else:
+
                     queryset = queryset.filter(
                         Q(
                             brand__division__contains=[
@@ -278,65 +249,37 @@ class PublicEventServiceListView(
                         )
                     )
 
-                    # IMPORTANT:
-                    # No .distinct() needed here.
-                    #
-                    # EventService -> EventBrand is a
-                    # single-valued FK relationship.
-
-        # =================================================
         # General search
-        # =================================================
-
         search = (
-            self.request
-            .query_params
-            .get("search")
+            self.request.query_params.get("search")
         )
 
         if search:
+
             search = search.strip()
 
             search_query = (
-                Q(
-                    service_name__icontains=search
-                )
+                Q(service_name__icontains=search)
                 |
-                Q(
-                    description__icontains=search
-                )
+                Q(description__icontains=search)
                 |
-                Q(
-                    brand__brand_name__icontains=search
-                )
+                Q(brand__brand_name__icontains=search)
                 |
-                Q(
-                    brand__display_name__icontains=search
-                )
+                Q(brand__display_name__icontains=search)
                 |
-                Q(
-                    brand__office_address__icontains=search
-                )
+                Q(brand__office_address__icontains=search)
                 |
-                Q(
-                    brand__seller__full_name__icontains=search
-                )
+                Q(brand__seller__full_name__icontains=search)
             )
 
             normalized_search = (
-                search
-                .lower()
-                .replace(" ", "_")
+                search.lower().replace(" ", "_")
             )
 
-            if (
-                normalized_search
-                in DIVISION_VALUES
-            ):
-                if (
-                    normalized_search
-                    == "whole_bangladesh"
-                ):
+            if normalized_search in DIVISION_VALUES:
+
+                if normalized_search == "whole_bangladesh":
+
                     search_query |= Q(
                         brand__division__contains=[
                             "whole_bangladesh"
@@ -344,6 +287,7 @@ class PublicEventServiceListView(
                     )
 
                 else:
+
                     search_query |= (
                         Q(
                             brand__division__contains=[

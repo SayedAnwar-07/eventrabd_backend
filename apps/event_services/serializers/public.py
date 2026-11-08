@@ -1,7 +1,4 @@
 from decimal import Decimal
-
-from django.core.cache import cache
-
 from rest_framework import serializers
 
 from apps.event_planner.models import EventBrand
@@ -14,10 +11,6 @@ from apps.event_services.models import (
 from apps.event_services.serializers.common import (
     ServiceGalleryImageSerializer,
 )
-
-
-IMAGE_CACHE_TIMEOUT = 86400
-
 
 # =========================================================
 # Public Seller Serializer
@@ -59,53 +52,30 @@ class PublicServiceSellerSerializer(
         read_only_fields = fields
 
 
+    
     def get_profile_image_url(self, obj):
 
         seller = obj.seller
 
-        if not seller.profile_image:
+        if not seller or not seller.profile_image:
             return None
 
-
-        cache_key = (
-            f"seller_profile:{seller.id}"
-        )
-
-
-        url = cache.get(cache_key)
-
-
-        if url:
-            return url
-
-
         try:
-
-            url = seller.profile_image.build_url(
+            return seller.profile_image.build_url(
                 transformation=[
                     {
-                        "width":500,
-                        "height":500,
-                        "crop":"limit",
+                        "width": 500,
+                        "height": 500,
+                        "crop": "limit",
                     }
                 ],
                 quality="auto",
                 fetch_format="auto",
             )
 
-
-            cache.set(
-                cache_key,
-                url,
-                IMAGE_CACHE_TIMEOUT,
-            )
-
-
-            return url
-
-
         except Exception:
             return None
+
 
 
 
@@ -144,52 +114,28 @@ class PublicServiceBrandSerializer(
 
 
 
-    def get_logo_url(self,obj):
+    
+    def get_logo_url(self, obj):
 
         if not obj.logo:
             return None
 
-
-        cache_key = (
-            f"brand_logo:{obj.id}"
-        )
-
-
-        url = cache.get(cache_key)
-
-
-        if url:
-            return url
-
-
-
         try:
-
-            url = obj.logo.build_url(
+            return obj.logo.build_url(
                 transformation=[
                     {
-                        "width":300,
-                        "height":300,
-                        "crop":"limit",
+                        "width": 300,
+                        "height": 300,
+                        "crop": "limit",
                     }
                 ],
                 quality="auto",
                 fetch_format="auto",
             )
 
-
-            cache.set(
-                cache_key,
-                url,
-                IMAGE_CACHE_TIMEOUT,
-            )
-
-
-            return url
-
-
         except Exception:
             return None
+
 
 
 
@@ -279,9 +225,8 @@ class PublicEventServiceCardSerializer(
             "brand",
         ]
 
-
-
-    def get_cover_photo_url(self,obj):
+    
+    def get_cover_photo_url(self, obj):
 
         if (
             obj.service_name
@@ -289,46 +234,15 @@ class PublicEventServiceCardSerializer(
         ):
             return None
 
-
         if not obj.cover_photo:
             return None
 
-
-
-        cache_key = (
-            f"service_cover:{obj.id}"
-        )
-
-
-
-        url = cache.get(cache_key)
-
-
-        if url:
-            return url
-
-
-
         try:
-
-            url = obj.cover_photo.url
-
-
-            cache.set(
-                cache_key,
-                url,
-                IMAGE_CACHE_TIMEOUT,
-            )
-
-
-            return url
-
+            return obj.cover_photo.url
 
         except Exception:
             return None
-
-
-
+        
 
     def get_gallery_images(self,obj):
 

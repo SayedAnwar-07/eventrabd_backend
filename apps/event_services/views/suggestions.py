@@ -27,17 +27,18 @@ class SellerSuggestionView(ListAPIView):
             .strip()
         )
 
-        print("SELLER SEARCH HIT:", q)
-
         if not q:
             return User.objects.none()
-
 
         queryset = (
             User.objects
             .filter(
                 role="seller",
                 is_active=True,
+
+                # Only sellers who own an EventBrand
+                event_brand__isnull=False,
+
                 full_name__icontains=q,
             )
             .order_by(
